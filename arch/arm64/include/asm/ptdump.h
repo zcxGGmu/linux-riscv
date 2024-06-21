@@ -44,6 +44,7 @@ struct pg_level {
  */
 struct pg_state {
 	struct ptdump_state ptdump;
+	struct pg_level *pg_level;
 	struct seq_file *seq;
 	const struct addr_marker *marker;
 	const struct mm_struct *mm;
