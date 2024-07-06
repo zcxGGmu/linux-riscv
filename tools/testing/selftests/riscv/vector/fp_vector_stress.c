@@ -51,6 +51,7 @@ static int num_processors(void)
     return nproc;
 }
 
+/** Child Operations... */
 static void child_start(struct child_data *child, const char *program)
 {
     int ret, pipefd[2], i;
@@ -66,13 +67,96 @@ static void child_start(struct child_data *child, const char *program)
         ksft_exit_fail_msg("Failed to create stdout pipe: %s (%d)\n",
                     strerror(errno), errno);
 
-    // TODO
     if (!child->pid) {
+        /**
+         *  In child, replace stdout with the pipe, errors to
+         *  stderr from here as kselftest prints to stdout.
+         */
+        ret = dup2(pipefd[1], 1);
+        if (ret == -1) {
+            fprintf(stderr, "dup2() %d\n", errno);
+            exit(EXIT_FAILURE);
+        }
+
+        /**
+         *  Duplicate the read side of the startup pipe to
+         *  FD 3 so we can close everything else.
+         */
+        ret = dup2(startup_pipe[0], 3);
+        if (ret == -1) {
+            fprintf(stderr, "dup2() %d\n", errno);
+            exit(EXIT_FAILURE);
+        }
+
+        /**
+         *  Very dumb mechanism to clean open FDs other than
+         *  stdio. We don't want O_CLOEXEC for the pipes...
+         */
+        for (i = 4; i < 8192; i++)
+            close(i);
+
+        /**
+         *  Read from the startup pipe, there should be no data
+         *  and we should block until it is closed. We just
+         *  carry on on error since this isn't super critical.
+         */
+        ret = read(3, &i, sizeof(i));
+        if (ret < 0)
+            fprintf(stderr, "read(startup_pipe) failed: %s (%d)\n",
+                strerror(errno), errno);
+        if (ret > 0)
+            fprintf(stderr, "%d bytes of data on startup pipe\n",
+                ret);
+        close(3);
         
+        ret = execl(program, program, NULL);
+        fprintf(stderr, "execl(%s) failed: %d (%s)\n",
+            program, errno, strerror(errno));
+        
+        exit(EXIT_FAILURE);
     } else {
+        /**
+         *  In parent, remember the child and close our copy of the
+         *  write side of stdout.
+         */
+        close(pipefd[1]);
+        child->stdout = pipefd[0];
+        child->output = NULL;
+        child->exited = false;
+        child->output_seen = false;
         
+        ev.events = EPOLLIN | EPOLLHUP;
+        ev.data.ptr = child;
+        
+        ret = epoll_ctl(epoll_fd, EPOLL_CTL_ADD, child->stdout, &ev);
+        if (ret < 0) {
+            ksft_exit_fail_msg("%s EPOLL_CTL_ADD failed: %s (%d)\n",
+                        child->name, strerror(errno), errno);
+        }
     }
+}
+
+static void child_stop(struct child_data *child)
+{
+    if (!child->exited)
+        kill(child->pid, SIGTERM);
+}
+
+static bool child_output_read(struct child_data *child)
+{
     
+}
+
+static void child_output(struct child_data *child, uint32_t events,
+                bool flush)
+{
+    
+}
+
+static void child_tickle(struct child_data *child)
+{
+    if (child->output_seen && !child->exited)
+        kill(child->pid, SIGUSR2);
 }
 
 static void start_fp(struct child_data *child, int cpu)
@@ -110,6 +194,46 @@ static void start_vector(struct child_data *child, int cpu)
     child_start(child, "./vector-test");
 
     ksft_print_msg("Started %s\n", child->name);
+}
+
+/** Signal Handler... */
+static void handle_exit_signal(int sig, siginfo_t *info, void *context)
+{
+    int i;
+
+    /** If we're already exiting then don't signal again */
+    if (terminate)
+        return;
+
+    ksft_print_msg("Got signal, exiting...\n");
+
+    terminate = true;
+
+    /**
+     *  This should be redundant, the main loop should clean up
+     *  after us, but for safety stop everything we can here.
+     */
+    for (i = 0; i < num_children; i++)
+        child_stop(&children[i]);
+}
+
+static void handle_child_signal(int sig, siginfo_t *info, void *context)
+{
+    int i;
+    bool found = false;
+    
+    for (i = 0; i < num_children; i++) {
+        if (children[i].pid == info->si_pid) {
+            children[i].exited = true;
+            children[i].exit_status = info->si_status;
+            found = true;
+            break;
+        }
+    }
+
+    if (!found)
+        ksft_print_msg("SIGCHLD for unknown PID %d with status %d\n",
+                    info->si_pid, info->si_status);
 }
 
 /* Handle any pending output without blocking */
