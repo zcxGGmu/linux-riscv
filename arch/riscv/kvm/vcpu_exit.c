@@ -10,6 +10,14 @@
 #include <asm/csr.h>
 #include <asm/insn-def.h>
 
+static unsigned long exc_to_sbi_pmu_fw_event[] = {
+	[EXC_INST_ILLEGAL] 		= SBI_PMU_FW_ILLEGAL_INSN,
+	[EXC_LOAD_MISALIGNED] 	= SBI_PMU_FW_MISALIGNED_LOAD,
+	[EXC_LOAD_ACCESS] 		= SBI_PMU_FW_ACCESS_LOAD,
+	[EXC_STORE_MISALIGNED] 	= SBI_PMU_FW_MISALIGNED_STORE,
+	[EXC_STORE_ACCESS] 		= SBI_PMU_FW_ACCESS_STORE,
+};
+
 static int gstage_page_fault(struct kvm_vcpu *vcpu, struct kvm_run *run,
 			     struct kvm_cpu_trap *trap)
 {
@@ -173,18 +181,25 @@ int kvm_riscv_vcpu_exit(struct kvm_vcpu *vcpu, struct kvm_run *run,
 			struct kvm_cpu_trap *trap)
 {
 	int ret;
+	unsigned long scause;
 
 	/* If we got host interrupt then do nothing */
-	if (trap->scause & CAUSE_IRQ_FLAG)
+	scause = trap->scause;
+	if (scause & CAUSE_IRQ_FLAG)
 		return 1;
 
 	/* Handle guest traps */
 	ret = -EFAULT;
 	run->exit_reason = KVM_EXIT_UNKNOWN;
-	switch (trap->scause) {
+	switch (scause) {
 	case EXC_INST_ILLEGAL:
+	case EXC_INST_ACCESS:
+	case EXC_LOAD_ACCESS:
+	case EXC_STORE_ACCESS:
 	case EXC_LOAD_MISALIGNED:
 	case EXC_STORE_MISALIGNED:
+		if (scause != EXC_INST_ACCESS)
+			kvm_riscv_vcpu_pmu_incr_fw(vcpu, exc_to_sbi_pmu_fw_event[scause]);
 		if (vcpu->arch.guest_context.hstatus & HSTATUS_SPV) {
 			kvm_riscv_vcpu_trap_redirect(vcpu, trap);
 			ret = 1;
