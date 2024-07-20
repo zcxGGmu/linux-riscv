@@ -11,6 +11,7 @@
 
 #include <linux/pgtable.h>
 #include <asm/kasan.h>
+#include <asm/ptdump.h>
 
 #define pt_dump_seq_printf(m, fmt, args...)	\
 ({						\
@@ -23,39 +24,6 @@
 	if (m)				\
 		seq_printf(m, fmt);	\
 })
-
-/*
- * The page dumper groups page table entries of the same type into a single
- * description. It uses pg_state to track the range information while
- * iterating over the pte entries. When the continuity is broken it then
- * dumps out a description of the range.
- */
-struct pg_state {
-	struct ptdump_state ptdump;
-	struct seq_file *seq;
-	const struct addr_marker *marker;
-	unsigned long start_address;
-	unsigned long start_pa;
-	unsigned long last_pa;
-	int level;
-	u64 current_prot;
-	bool check_wx;
-	unsigned long wx_pages;
-};
-
-/* Address marker */
-struct addr_marker {
-	unsigned long start_address;
-	const char *name;
-};
-
-/* Private information for debugfs */
-struct ptd_mm_info {
-	struct mm_struct		*mm;
-	const struct addr_marker	*markers;
-	unsigned long base_addr;
-	unsigned long end;
-};
 
 enum address_markers_idx {
 	FIXMAP_START_NR,
@@ -125,13 +93,6 @@ static struct ptd_mm_info efi_ptd_info = {
 };
 #endif
 
-/* Page Table Entry */
-struct prot_bits {
-	u64 mask;
-	const char *set;
-	const char *clear;
-};
-
 static const struct prot_bits pte_bits[] = {
 	{
 #ifdef CONFIG_64BIT
@@ -180,12 +141,6 @@ static const struct prot_bits pte_bits[] = {
 		.set = "V",
 		.clear = ".",
 	}
-};
-
-/* Page Level */
-struct pg_level {
-	const char *name;
-	u64 mask;
 };
 
 static struct pg_level pg_level[] = {
@@ -275,7 +230,7 @@ static void note_prot_wx(struct pg_state *st, unsigned long addr)
 	st->wx_pages += (addr - st->start_address) / PAGE_SIZE;
 }
 
-static void note_page(struct ptdump_state *pt_st, unsigned long addr,
+void note_page(struct ptdump_state *pt_st, unsigned long addr,
 		      int level, u64 val)
 {
 	struct pg_state *st = container_of(pt_st, struct pg_state, ptdump);
@@ -317,7 +272,7 @@ static void note_page(struct ptdump_state *pt_st, unsigned long addr,
 	}
 }
 
-static void ptdump_walk(struct seq_file *s, struct ptd_mm_info *pinfo)
+void ptdump_walk(struct seq_file *s, struct ptd_mm_info *pinfo)
 {
 	struct pg_state st = {
 		.seq = s,
