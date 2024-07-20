@@ -11,6 +11,7 @@
 #include <linux/module.h>
 #include <linux/uaccess.h>
 #include <linux/kvm_host.h>
+#include <kvm_ptdump.h>
 
 const struct _kvm_stats_desc kvm_vm_stats_desc[] = {
 	KVM_GENERIC_VM_STATS()
@@ -46,6 +47,11 @@ int kvm_arch_init_vm(struct kvm *kvm, unsigned long type)
 	kvm_riscv_guest_timer_init(kvm);
 
 	return 0;
+}
+
+void kvm_arch_create_vm_debugfs(struct kvm *kvm)
+{
+	kvm_riscv_ptdump_register(kvm);
 }
 
 void kvm_arch_destroy_vm(struct kvm *kvm)
