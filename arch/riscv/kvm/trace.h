@@ -13,6 +13,21 @@
 #undef TRACE_SYSTEM
 #define TRACE_SYSTEM kvm
 
+#define kvm_riscv_trap_type \
+	{1, "IRQ"},	\
+	{0, "EXC"}
+
+#define TCC_IRQ(x) { IRQ_##x, #x }
+#define TCC_EXC(x) { EXC_##x, #x }
+
+#define kvm_riscv_trap_class \
+	TCC_IRQ(S_SOFT), TCC_IRQ(S_TIMER), TCC_IRQ(S_EXT), \
+	TCC_IRQ(S_GEXT), TCC_IRQ(S_GEXT), TCC_IRQ(PMU_OVF) \
+	TCC_EXC(INST_ILLEGAL), TCC_EXC(LOAD_MISALIGNED), TCC_EXC(STORE_MISALIGNED), \
+	TCC_EXC(VIRTUAL_INST_FAULT), TCC_EXC(INST_GUEST_PAGE_FAULT), \
+	TCC_EXC(LOAD_GUEST_PAGE_FAULT), TCC_EXC(STORE_GUEST_PAGE_FAULT), \
+	TCC_EXC(SUPERVISOR_SYSCALL), TCC_EXC(BREAKPOINT)
+
 TRACE_EVENT(kvm_entry,
 	TP_PROTO(struct kvm_vcpu *vcpu),
 	TP_ARGS(vcpu),
@@ -48,9 +63,11 @@ TRACE_EVENT(kvm_exit,
 		__entry->htinst		= trap->htinst;
 	),
 
-	TP_printk("SEPC:0x%lx, SCAUSE:0x%lx, STVAL:0x%lx, HTVAL:0x%lx, HTINST:0x%lx",
+	TP_printk("SEPC:0x%lx, SCAUSE:0x%lx(%s/%s), STVAL:0x%lx, HTVAL:0x%lx, HTINST:0x%lx",
 		__entry->sepc,
 		__entry->scause,
+		__print_symbolic((__entry->scause & CAUSE_IRQ_FLAG), kvm_riscv_trap_type),
+		__print_symbolic(__entry->scause, kvm_riscv_trap_class),
 		__entry->stval,
 		__entry->htval,
 		__entry->htinst)
