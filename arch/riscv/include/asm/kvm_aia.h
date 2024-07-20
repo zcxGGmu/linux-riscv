@@ -14,6 +14,8 @@
 #include <linux/kvm_types.h>
 #include <asm/csr.h>
 
+struct aia_state_iter;
+
 struct kvm_aia {
 	/* In-kernel irqchip created */
 	bool		in_kernel;
@@ -47,6 +49,9 @@ struct kvm_aia {
 
 	/* Internal state of APLIC */
 	void		*aplic_state;
+
+	/* Used by aia-debug */
+	struct aia_state_iter *iter;
 };
 
 struct kvm_vcpu_aia_csr {
@@ -170,5 +175,8 @@ void kvm_riscv_aia_enable(void);
 void kvm_riscv_aia_disable(void);
 int kvm_riscv_aia_init(void);
 void kvm_riscv_aia_exit(void);
+
+void kvm_aia_debug_init(struct kvm *kvm);
+void kvm_aia_debug_destory(struct kvm *kvm);
 
 #endif

@@ -61,7 +61,9 @@ static int aia_create(struct kvm_device *dev, u32 type)
 			goto out_unlock;
 	}
 	ret = 0;
-
+	
+	kvm_aia_debug_init(kvm);
+	
 	kvm->arch.aia.in_kernel = true;
 
 out_unlock:
@@ -71,6 +73,8 @@ out_unlock:
 
 static void aia_destroy(struct kvm_device *dev)
 {
+	kvm_aia_debug_destory(dev->kvm);	
+
 	kfree(dev);
 }
 
