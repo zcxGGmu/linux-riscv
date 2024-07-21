@@ -94,6 +94,35 @@ TRACE_EVENT(kvm_guest_page_fault,
 		  __print_symbolic(__entry->scause, kvm_riscv_trap_class))
 );
 
+TRACE_EVENT(kvm_irq_inject,
+	TP_PROTO(struct aplic_irq *irqd, u32 source, bool level, bool inject),
+	TP_ARGS(irqd, source, level, inject),
+
+	TP_STRUCT__entry(
+		__field(u32,	source)
+		__field(u32,	target)
+		__field(u32,	mode)
+		__field(int,	level)
+        __field(bool,	state)
+	),
+
+	TP_fast_assign(
+		__entry->source	= source;
+		__entry->target	= irqd->target;
+		__entry->mode	= irqd->sourcecfg &	APLIC_SOURCECFG_SM_MASK;
+		__entry->level	= level;
+        __entry->state  = inject;
+	),
+
+	TP_printk("Inject interrupt, source: %d, target: %d, mode: %s, level: %d, state: %s",
+			__entry->source, __entry->target,
+			(__entry->mode == APLIC_SOURCECFG_SM_EDGE_RISE) ? "edge-rise" :
+			(__entry->mode == APLIC_SOURCECFG_SM_EDGE_FALL) ? "edge-fall" :
+			(__entry->mode == APLIC_SOURCECFG_SM_LEVEL_HIGH) ? "level-high" :
+			(__entry->mode == APLIC_SOURCECFG_SM_LEVEL_LOW) ? "level-low" : "unknown",
+			__entry->level, __entry->state ? "injected" : "non-injected")
+);
+
 #endif /* _TRACE_RSICV_KVM_H */
 
 #undef TRACE_INCLUDE_PATH

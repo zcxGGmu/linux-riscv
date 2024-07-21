@@ -14,6 +14,9 @@
 #include <kvm/iodev.h>
 #include <asm/kvm_aia_aplic.h>
 
+#define CREATE_TRACE_POINTS
+#include "trace.h"
+
 struct aplic_irq {
 	raw_spinlock_t lock;
 	u32 sourcecfg;
@@ -326,6 +329,7 @@ int kvm_riscv_aia_aplic_inject(struct kvm *kvm, u32 source, bool level)
 skip_unlock:
 	raw_spin_unlock_irqrestore(&irqd->lock, flags);
 
+	trace_kvm_irq_inject(irqd, source, level, target);
 	if (inject)
 		aplic_inject_msi(kvm, source, target);
 
