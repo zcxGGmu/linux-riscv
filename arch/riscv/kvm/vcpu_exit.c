@@ -33,11 +33,11 @@ static int gstage_page_fault(struct kvm_vcpu *vcpu, struct kvm_run *run,
 		case EXC_LOAD_GUEST_PAGE_FAULT:
 			return kvm_riscv_vcpu_mmio_load(vcpu, run,
 							fault_addr,
-							trap->htinst);
+							trap);
 		case EXC_STORE_GUEST_PAGE_FAULT:
 			return kvm_riscv_vcpu_mmio_store(vcpu, run,
 							 fault_addr,
-							 trap->htinst);
+							 trap);
 		default:
 			return -EOPNOTSUPP;
 		};

@@ -9,6 +9,9 @@
 
 #include <asm/cpufeature.h>
 
+#define CREATE_TRACE_POINTS
+#include "trace.h"
+
 #define INSN_OPCODE_MASK	0x007c
 #define INSN_OPCODE_SHIFT	2
 #define INSN_OPCODE_SYSTEM	28
@@ -465,13 +468,14 @@ int kvm_riscv_vcpu_virtual_insn(struct kvm_vcpu *vcpu, struct kvm_run *run,
  */
 int kvm_riscv_vcpu_mmio_load(struct kvm_vcpu *vcpu, struct kvm_run *run,
 			     unsigned long fault_addr,
-			     unsigned long htinst)
+			     struct kvm_cpu_trap *trap)
 {
 	u8 data_buf[8];
 	unsigned long insn;
 	int shift = 0, len = 0, insn_len = 0;
 	struct kvm_cpu_trap utrap = { 0 };
 	struct kvm_cpu_context *ct = &vcpu->arch.guest_context;
+	unsigned long htinst = trap->htinst;
 
 	/* Determine trapped instruction */
 	if (htinst & 0x1) {
@@ -545,6 +549,8 @@ int kvm_riscv_vcpu_mmio_load(struct kvm_vcpu *vcpu, struct kvm_run *run,
 	if (fault_addr & (len - 1))
 		return -EIO;
 
+	trace_kvm_mmio_emulate(trap->scause, fault_addr, insn, len, shift);
+	
 	/* Save instruction decode info */
 	vcpu->arch.mmio_decode.insn = insn;
 	vcpu->arch.mmio_decode.insn_len = insn_len;
@@ -587,7 +593,7 @@ int kvm_riscv_vcpu_mmio_load(struct kvm_vcpu *vcpu, struct kvm_run *run,
  */
 int kvm_riscv_vcpu_mmio_store(struct kvm_vcpu *vcpu, struct kvm_run *run,
 			      unsigned long fault_addr,
-			      unsigned long htinst)
+			      struct kvm_cpu_trap *trap)
 {
 	u8 data8;
 	u16 data16;
@@ -598,6 +604,7 @@ int kvm_riscv_vcpu_mmio_store(struct kvm_vcpu *vcpu, struct kvm_run *run,
 	int len = 0, insn_len = 0;
 	struct kvm_cpu_trap utrap = { 0 };
 	struct kvm_cpu_context *ct = &vcpu->arch.guest_context;
+	unsigned long htinst = trap->htinst;
 
 	/* Determine trapped instruction */
 	if (htinst & 0x1) {
@@ -659,6 +666,8 @@ int kvm_riscv_vcpu_mmio_store(struct kvm_vcpu *vcpu, struct kvm_run *run,
 	/* Fault address should be aligned to length of MMIO */
 	if (fault_addr & (len - 1))
 		return -EIO;
+
+	trace_kvm_mmio_emulate(trap->scause, fault_addr, insn, len, shift);
 
 	/* Save instruction decode info */
 	vcpu->arch.mmio_decode.insn = insn;

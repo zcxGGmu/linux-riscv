@@ -123,6 +123,34 @@ TRACE_EVENT(kvm_irq_inject,
 			__entry->level, __entry->state ? "injected" : "non-injected")
 );
 
+TRACE_EVENT(kvm_mmio_emulate,
+	TP_PROTO(unsigned long scause, unsigned long fault_addr,
+			unsigned long insn, int len, int shift),
+	TP_ARGS(scause, fault_addr, insn, len, shift),
+
+	TP_STRUCT__entry(
+		__field(unsigned long, scause)
+		__field(unsigned long, fault_addr)
+		__field(unsigned long, insn)
+		__field(int, len)
+        __field(int, shift)
+	),
+
+	TP_fast_assign(
+		__entry->scause 	= scause;
+		__entry->fault_addr	= fault_addr;
+		__entry->insn		= insn;
+		__entry->len		= len;
+        __entry->shift		= shift;
+	),
+
+	TP_printk("Emulate MMIO %s at: 0x%016lx (insn: %08lx, len: %d, shift: %d)",
+		(scause == EXC_LOAD_GUEST_PAGE_FAULT) ? "LOAD" :
+		(scause == EXC_STORE_GUEST_PAGE_FAULT) ? "STORE" : "ERROR",
+		__entry->fault_addr, __entry->insn,
+		__entry->len, __entry->shift)
+);
+
 #endif /* _TRACE_RSICV_KVM_H */
 
 #undef TRACE_INCLUDE_PATH
