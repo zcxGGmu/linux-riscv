@@ -107,7 +107,7 @@ static inline unsigned long perf_ip_adjust(struct pt_regs *regs)
 	return 0;
 }
 static inline void perf_get_data_addr(struct perf_event *event, struct pt_regs *regs, u64 *addrp) { }
-static inline u32 perf_get_misc_flags(struct pt_regs *regs)
+static inline u16 perf_get_misc_flags(struct pt_regs *regs)
 {
 	return 0;
 }
@@ -254,7 +254,7 @@ static bool regs_sipr(struct pt_regs *regs)
 	return !!(regs->dsisr & sipr);
 }
 
-static inline u32 perf_flags_from_msr(struct pt_regs *regs)
+static inline u16 perf_flags_from_msr(struct pt_regs *regs)
 {
 	if (user_mode(regs))
 		return PERF_RECORD_MISC_USER;
@@ -263,7 +263,7 @@ static inline u32 perf_flags_from_msr(struct pt_regs *regs)
 	return PERF_RECORD_MISC_KERNEL;
 }
 
-static inline u32 perf_get_misc_flags(struct pt_regs *regs)
+static inline u16 perf_get_misc_flags(struct pt_regs *regs)
 {
 	bool use_siar = regs_use_siar(regs);
 	unsigned long siar;
@@ -2332,9 +2332,9 @@ static void record_and_restart(struct perf_event *event, unsigned long val,
  * Called from generic code to get the misc flags (i.e. processor mode)
  * for an event_id.
  */
-unsigned long perf_misc_flags(struct pt_regs *regs)
+unsigned short perf_misc_flags(struct pt_regs *regs)
 {
-	u32 flags = perf_get_misc_flags(regs);
+	u16 flags = (regs);
 
 	if (flags)
 		return flags;
