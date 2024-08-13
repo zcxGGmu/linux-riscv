@@ -254,7 +254,7 @@ static bool regs_sipr(struct pt_regs *regs)
 	return !!(regs->dsisr & sipr);
 }
 
-static inline u16 perf_flags_from_msr(struct pt_regs *regs)
+static inline u32 perf_flags_from_msr(struct pt_regs *regs)
 {
 	if (user_mode(regs))
 		return PERF_RECORD_MISC_USER;
@@ -2334,7 +2334,7 @@ static void record_and_restart(struct perf_event *event, unsigned long val,
  */
 unsigned short perf_misc_flags(struct pt_regs *regs)
 {
-	u16 flags = (regs);
+	u16 flags = perf_get_misc_flags(regs);
 
 	if (flags)
 		return flags;
