@@ -1285,10 +1285,10 @@ static inline void perf_sample_save_brstack(struct perf_sample_data *data,
 	data->sample_flags |= PERF_SAMPLE_BRANCH_STACK;
 }
 
-static inline u32 perf_sample_data_size(struct perf_sample_data *data,
+static inline u16 perf_sample_data_size(struct perf_sample_data *data,
 					struct perf_event *event)
 {
-	u32 size = sizeof(struct perf_event_header);
+	u16 size = sizeof(struct perf_event_header);
 
 	size += event->header_size + event->id_header_size;
 	size += data->dyn_size;
