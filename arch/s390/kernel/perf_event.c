@@ -63,16 +63,16 @@ unsigned long perf_instruction_pointer(struct pt_regs *regs)
 				 : instruction_pointer(regs);
 }
 
-static unsigned long perf_misc_guest_flags(struct pt_regs *regs)
+static unsigned short perf_misc_guest_flags(struct pt_regs *regs)
 {
 	return guest_is_user_mode(regs) ? PERF_RECORD_MISC_GUEST_USER
 					: PERF_RECORD_MISC_GUEST_KERNEL;
 }
 
-static unsigned long perf_misc_flags_sf(struct pt_regs *regs)
+static unsigned short perf_misc_flags_sf(struct pt_regs *regs)
 {
 	struct perf_sf_sde_regs *sde_regs;
-	unsigned long flags;
+	unsigned short flags;
 
 	sde_regs = (struct perf_sf_sde_regs *) &regs->int_parm_long;
 	if (sde_regs->in_guest)
@@ -84,7 +84,7 @@ static unsigned long perf_misc_flags_sf(struct pt_regs *regs)
 	return flags;
 }
 
-unsigned long perf_misc_flags(struct pt_regs *regs)
+unsigned short perf_misc_flags(struct pt_regs *regs)
 {
 	/* Check if the cpum_sf PMU has created the pt_regs structure.
 	 * In this case, perf misc flags can be easily extracted.  Otherwise,
