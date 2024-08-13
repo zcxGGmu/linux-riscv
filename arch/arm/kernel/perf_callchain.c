@@ -102,9 +102,9 @@ unsigned long perf_instruction_pointer(struct pt_regs *regs)
 	return instruction_pointer(regs);
 }
 
-unsigned long perf_misc_flags(struct pt_regs *regs)
+unsigned short perf_misc_flags(struct pt_regs *regs)
 {
-	int misc = 0;
+	unsigned short misc = 0;
 
 	if (user_mode(regs))
 		misc |= PERF_RECORD_MISC_USER;
