@@ -9,9 +9,27 @@
 #define _TRACE_KVM_H
 
 #include <linux/tracepoint.h>
+#include <asm/csr.h>
 
 #undef TRACE_SYSTEM
 #define TRACE_SYSTEM kvm
+
+#define kvm_riscv_trap_type \
+	{1, "IRQ"}, 			\
+	{0, "EXC"}
+
+#define IRQ(x) { IRQ_##x, #x }
+#define EXC(x) { EXC_##x, #x }
+
+#define kvm_riscv_trap_class \
+	IRQ(S_SOFT), IRQ(S_TIMER), IRQ(S_EXT), \
+	IRQ(S_GEXT), IRQ(PMU_OVF), \
+	EXC(INST_ACCESS), EXC(INST_ILLEGAL), \
+	EXC(BREAKPOINT), EXC(LOAD_MISALIGNED), \
+	EXC(LOAD_ACCESS), EXC(STORE_MISALIGNED), \
+	EXC(STORE_ACCESS), EXC(SUPERVISOR_SYSCALL), \
+	EXC(INST_GUEST_PAGE_FAULT), EXC(LOAD_GUEST_PAGE_FAULT), \
+	EXC(VIRTUAL_INST_FAULT), EXC(STORE_GUEST_PAGE_FAULT)
 
 TRACE_EVENT(kvm_entry,
 	TP_PROTO(struct kvm_vcpu *vcpu),
@@ -48,9 +66,11 @@ TRACE_EVENT(kvm_exit,
 		__entry->htinst		= trap->htinst;
 	),
 
-	TP_printk("SEPC:0x%lx, SCAUSE:0x%lx, STVAL:0x%lx, HTVAL:0x%lx, HTINST:0x%lx",
+	TP_printk("%s: SEPC:0x%lx, SCAUSE:0x%lx (%s), STVAL:0x%lx, HTVAL:0x%lx, HTINST:0x%lx",
+		__print_symbolic((__entry->scause & CAUSE_IRQ_FLAG), kvm_riscv_trap_type),
 		__entry->sepc,
 		__entry->scause,
+		__print_symbolic(__entry->scause, kvm_riscv_trap_class),
 		__entry->stval,
 		__entry->htval,
 		__entry->htinst)
