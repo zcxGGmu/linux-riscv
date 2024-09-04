@@ -35,7 +35,7 @@
 #define EXC_VIRTUAL_INST_FAULT 22
 #define EXC_STORE_GUEST_PAGE_FAULT 23
 
-#define IRQ(x) {EXC_##X, #x }
+#define IRQ(x) {EXC_##x, #x }
 #define EXC(x) {EXC_##x, #x }
 
 #define kvm_riscv_trap_class \
