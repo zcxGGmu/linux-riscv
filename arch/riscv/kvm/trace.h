@@ -76,6 +76,27 @@ TRACE_EVENT(kvm_exit,
 		__entry->htinst)
 );
 
+TRACE_EVENT(kvm_guest_page_fault,
+	TP_PROTO(struct kvm_cpu_trap *trap, unsigned long fault_addr),
+	TP_ARGS(trap, fault_addr),
+
+	TP_STRUCT__entry(
+		__field(unsigned long, sepc)
+		__field(unsigned long, scause)
+		__field(unsigned long, fault_addr)
+	),
+
+	TP_fast_assign(
+		__entry->sepc			= trap->sepc;
+		__entry->scause			= trap->scause;
+		__entry->fault_addr		= fault_addr;
+	),
+
+	TP_printk("fault_addr %#lx, sepc %#08lx, scause %#08lx(%s)",
+		  __entry->fault_addr, __entry->sepc, __entry->scause
+		  __print_symbolic(__entry->scause, kvm_riscv_trap_class))
+);
+
 #endif /* _TRACE_RSICV_KVM_H */
 
 #undef TRACE_INCLUDE_PATH
