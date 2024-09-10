@@ -14,6 +14,7 @@
 #include <asm/csr.h>
 #include <asm/delay.h>
 #include <asm/kvm_vcpu_timer.h>
+#include "trace.h"
 
 static u64 kvm_riscv_current_cycles(struct kvm_guest_timer *gt)
 {
@@ -316,6 +317,9 @@ void kvm_riscv_vcpu_timer_restore(struct kvm_vcpu *vcpu)
 	if (unlikely(!t->init_done))
 		return;
 
+	trace_kvm_timer_restore_state(vcpu->vcpu_id, t->next_cycles,
+		kvm_riscv_current_cycles(&vcpu->kvm->arch.timer));
+
 	kvm_riscv_vcpu_timer_unblocking(vcpu);
 }
 
@@ -332,6 +336,9 @@ void kvm_riscv_vcpu_timer_sync(struct kvm_vcpu *vcpu)
 #else
 	t->next_cycles = csr_read(CSR_VSTIMECMP);
 #endif
+
+	trace_kvm_timer_save_state(vcpu->vcpu_id, t->next_cycles,
+		kvm_riscv_current_cycles(&vcpu->kvm->arch.timer));
 }
 
 void kvm_riscv_vcpu_timer_save(struct kvm_vcpu *vcpu)

@@ -97,6 +97,46 @@ TRACE_EVENT(kvm_guest_page_fault,
 		  __print_symbolic(__entry->scause, kvm_riscv_trap_class))
 );
 
+TRACE_EVENT(kvm_timer_save_state,
+	TP_PROTO(unsigned long vcpu_id, u64 compare, u64 time),
+	TP_ARGS(vcpu_id, compare, time),
+
+	TP_STRUCT__entry(
+		__field(	unsigned long,	vcpu_id	)
+		__field(	u64,		compare	)
+		__field(	u64,		time	)
+	),
+
+	TP_fast_assign(
+		__entry->vcpu_id	= vcpu_id;
+		__entry->compare	= compare;
+		__entry->time		= time;
+	),
+
+	TP_printk("vcpu: %ld, compare: %lld, time: %lld",
+		  __entry->vcpu_id, __entry->compare, __entry->time)
+);
+
+TRACE_EVENT(kvm_timer_restore_state,
+	TP_PROTO(unsigned long vcpu_id, u64 compare, u64 time),
+	TP_ARGS(vcpu_id, compare, time),
+
+	TP_STRUCT__entry(
+		__field(	unsigned long,	vcpu_id	)
+		__field(	u64,		compare	)
+		__field(	u64,		time	)
+	),
+
+	TP_fast_assign(
+		__entry->vcpu_id	= vcpu_id;
+		__entry->compare	= compare;
+		__entry->time		= time;
+	),
+
+	TP_printk("vcpu: %ld, compare: %lld, time: %lld",
+		  __entry->vcpu_id, __entry->compare, __entry->time)
+);
+
 #endif /* _TRACE_RSICV_KVM_H */
 
 #undef TRACE_INCLUDE_PATH
