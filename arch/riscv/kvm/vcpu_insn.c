@@ -8,6 +8,7 @@
 #include <linux/kvm_host.h>
 
 #include <asm/cpufeature.h>
+#include "trace.h"
 
 #define INSN_OPCODE_MASK	0x007c
 #define INSN_OPCODE_SHIFT	2
@@ -572,6 +573,9 @@ int kvm_riscv_vcpu_mmio_load(struct kvm_vcpu *vcpu, struct kvm_run *run,
 	run->mmio.phys_addr = fault_addr;
 	run->mmio.len = len;
 
+	trace_kvm_mmio(KVM_TRACE_MMIO_READ_UNSATISFIED, run->mmio.len,
+				run->mmio.phys_addr, NULL);
+
 	/* Try to handle MMIO access in the kernel */
 	if (!kvm_io_bus_read(vcpu, KVM_MMIO_BUS, fault_addr, len, data_buf)) {
 		/* Successfully handled MMIO access in the kernel so resume */
@@ -705,6 +709,9 @@ int kvm_riscv_vcpu_mmio_store(struct kvm_vcpu *vcpu, struct kvm_run *run,
 	run->mmio.phys_addr = fault_addr;
 	run->mmio.len = len;
 
+	trace_kvm_mmio(KVM_TRACE_MMIO_WRITE, run->mmio.len,
+				run->mmio.phys_addr, run->mmio.data);
+
 	/* Try to handle MMIO access in the kernel */
 	if (!kvm_io_bus_write(vcpu, KVM_MMIO_BUS,
 			      fault_addr, len, run->mmio.data)) {
@@ -773,6 +780,9 @@ int kvm_riscv_vcpu_mmio_return(struct kvm_vcpu *vcpu, struct kvm_run *run)
 	default:
 		return -EOPNOTSUPP;
 	}
+
+	trace_kvm_mmio(KVM_TRACE_MMIO_READ, run->mmio.len,
+				run->mmio.phys_addr, run->mmio.data);
 
 done:
 	/* Move to next instruction */
