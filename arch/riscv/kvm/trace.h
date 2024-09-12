@@ -14,22 +14,21 @@
 #undef TRACE_SYSTEM
 #define TRACE_SYSTEM kvm
 
-#define kvm_riscv_trap_type \
-	{1, "IRQ"}, 			\
-	{0, "EXC"}
-
-#define IRQ(x) { IRQ_##x, #x }
-#define EXC(x) { EXC_##x, #x }
+#define TRAP(x) { x, #x }
 
 #define kvm_riscv_trap_class \
-	IRQ(S_SOFT), IRQ(S_TIMER), IRQ(S_EXT), \
-	IRQ(S_GEXT), IRQ(PMU_OVF), \
-	EXC(INST_ACCESS), EXC(INST_ILLEGAL), \
-	EXC(BREAKPOINT), EXC(LOAD_MISALIGNED), \
-	EXC(LOAD_ACCESS), EXC(STORE_MISALIGNED), \
-	EXC(STORE_ACCESS), EXC(SUPERVISOR_SYSCALL), \
-	EXC(INST_GUEST_PAGE_FAULT), EXC(LOAD_GUEST_PAGE_FAULT), \
-	EXC(VIRTUAL_INST_FAULT), EXC(STORE_GUEST_PAGE_FAULT)
+	TRAP(IRQ_S_SOFT), TRAP(IRQ_VS_SOFT), TRAP(IRQ_M_SOFT), \
+	TRAP(IRQ_S_TIMER), TRAP(IRQ_VS_TIMER), TRAP(IRQ_M_TIMER), \
+	TRAP(IRQ_S_EXT), TRAP(IRQ_VS_EXT), TRAP(IRQ_M_EXT), \
+	TRAP(IRQ_S_GEXT), TRAP(IRQ_PMU_OVF), \
+	TRAP(EXC_INST_MISALIGNED), TRAP(EXC_INST_ACCESS), TRAP(EXC_INST_ILLEGAL), \
+	TRAP(EXC_BREAKPOINT), TRAP(EXC_LOAD_MISALIGNED), TRAP(EXC_LOAD_ACCESS), \
+	TRAP(EXC_STORE_MISALIGNED), TRAP(EXC_STORE_ACCESS), TRAP(EXC_SYSCALL), \
+	TRAP(EXC_HYPERVISOR_SYSCALL), TRAP(EXC_SUPERVISOR_SYSCALL), \
+	TRAP(EXC_INST_PAGE_FAULT), TRAP(EXC_LOAD_PAGE_FAULT), \
+	TRAP(EXC_STORE_PAGE_FAULT), TRAP(EXC_INST_GUEST_PAGE_FAULT), \
+	TRAP(EXC_LOAD_GUEST_PAGE_FAULT), TRAP(EXC_VIRTUAL_INST_FAULT), \
+	TRAP(EXC_STORE_GUEST_PAGE_FAULT)
 
 TRACE_EVENT(kvm_entry,
 	TP_PROTO(struct kvm_vcpu *vcpu),
@@ -66,8 +65,7 @@ TRACE_EVENT(kvm_exit,
 		__entry->htinst		= trap->htinst;
 	),
 
-	TP_printk("%s: SEPC:0x%lx, SCAUSE:0x%lx (%s), STVAL:0x%lx, HTVAL:0x%lx, HTINST:0x%lx",
-		__print_symbolic((__entry->scause & CAUSE_IRQ_FLAG), kvm_riscv_trap_type),
+	TP_printk("SEPC:0x%lx, SCAUSE:0x%lx (%s), STVAL:0x%lx, HTVAL:0x%lx, HTINST:0x%lx",
 		__entry->sepc,
 		__entry->scause,
 		__print_symbolic(__entry->scause, kvm_riscv_trap_class),
