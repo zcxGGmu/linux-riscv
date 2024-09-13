@@ -68,7 +68,7 @@ TRACE_EVENT(kvm_exit,
 	TP_printk("SEPC:0x%lx, SCAUSE:0x%lx (%s), STVAL:0x%lx, HTVAL:0x%lx, HTINST:0x%lx",
 		__entry->sepc,
 		__entry->scause,
-		__print_symbolic(__entry->scause, kvm_riscv_trap_class),
+		__print_symbolic((__entry->scause & ～CAUSE_IRQ_FLAG), kvm_riscv_trap_class),
 		__entry->stval,
 		__entry->htval,
 		__entry->htinst)
