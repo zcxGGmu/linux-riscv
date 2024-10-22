@@ -216,20 +216,26 @@ bool check_reject_set(int err)
 	return err == EINVAL;
 }
 
+/*
 static uint64_t kvm_encode_reg_size_id(uint64_t id, size_t size_b)
 {
     uint64_t size_ctz = __builtin_ctz(size_b);
 
+	//printf("%llx\n", size_ctz << KVM_REG_SIZE_SHIFT);
+
     return id | (size_ctz << KVM_REG_SIZE_SHIFT);
 }
+*/
 
 static void finalize_vector_regs(__u64 vector_regs[], size_t vlenb)
 {
-	uint64_t id;
+	u64 size;
+	size = __builtin_ctzl(vlenb);
+	size <<= KVM_REG_SIZE_SHIFT;
 
-	for (int i = 0; i < 31; i++) {
-		id = KVM_REG_RISCV | KVM_REG_RISCV_VECTOR | KVM_REG_RISCV_VECTOR_REG(i);
-		vector_regs[i] = kvm_encode_reg_size_id(id, vlenb);
+	for (int i = 0; i < 32; i++) {
+		vector_regs[i] = KVM_REG_RISCV | KVM_REG_RISCV_VECTOR | size |
+			KVM_REG_RISCV_VECTOR_REG(i);
 	}
 }
 
@@ -775,6 +781,7 @@ void print_reg(const char *prefix, __u64 id)
 	case KVM_REG_RISCV_VECTOR:
 		printf("\tKVM_REG_RISCV | %s | KVM_REG_RISCV_VECTOR | %s,\n",
 		       reg_size, vector_id_to_str(prefix, id));
+		break;
 	case KVM_REG_RISCV_ISA_EXT:
 		printf("\tKVM_REG_RISCV | %s | KVM_REG_RISCV_ISA_EXT | %s,\n",
 		       reg_size, isa_ext_id_to_str(prefix, id));
