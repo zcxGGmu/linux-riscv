@@ -39,6 +39,8 @@ static unsigned long gstage_pgd_levels __ro_after_init = 2;
 #define gstage_pte_leaf(__ptep)	\
 	(pte_val(*(__ptep)) & (_PAGE_READ | _PAGE_WRITE | _PAGE_EXEC))
 
+#define has_svvptc()	riscv_has_extension_unlikely(RISCV_ISA_EXT_SVVPTC)
+
 static inline unsigned long gstage_pte_index(gpa_t addr, u32 level)
 {
 	unsigned long mask;
@@ -141,6 +143,7 @@ static int gstage_set_pte(struct kvm *kvm, u32 level,
 	u32 current_level = gstage_pgd_levels - 1;
 	pte_t *next_ptep = (pte_t *)kvm->arch.pgd;
 	pte_t *ptep = &next_ptep[gstage_pte_index(addr, current_level)];
+	bool valid_changed = false;
 
 	if (current_level < level)
 		return -EINVAL;
@@ -157,6 +160,7 @@ static int gstage_set_pte(struct kvm *kvm, u32 level,
 				return -ENOMEM;
 			set_pte(ptep, pfn_pte(PFN_DOWN(__pa(next_ptep)),
 					      __pgprot(_PAGE_TABLE)));
+			valid_changed = true;
 		} else {
 			if (gstage_pte_leaf(ptep))
 				return -EEXIST;
@@ -168,7 +172,7 @@ static int gstage_set_pte(struct kvm *kvm, u32 level,
 	}
 
 	set_pte(ptep, *new_pte);
-	if (gstage_pte_leaf(ptep))
+	if (gstage_pte_leaf(ptep) && (!has_svvptc() || !valid_changed))
 		gstage_remote_tlb_flush(kvm, current_level, addr);
 
 	return 0;
