@@ -319,9 +319,6 @@ static struct vfsmount *fuse_dentry_automount(struct path *path)
 
 	/* Create the submount */
 	mnt = fc_mount(fsc);
-	if (!IS_ERR(mnt))
-		mntget(mnt);
-
 	put_fs_context(fsc);
 	return mnt;
 }
@@ -1676,7 +1673,7 @@ static const char *fuse_get_link(struct dentry *dentry, struct inode *inode,
 		goto out_err;
 	}
 
-	set_delayed_call(callback, page_put_link, &folio->page);
+	set_delayed_call(callback, page_put_link, folio);
 
 	return folio_address(folio);
 
