@@ -11,6 +11,7 @@
 #include <asm/csr.h>
 #include <asm/vdso/processor.h>
 #include "kvm_util.h"
+#include "ucall_common.h"
 
 #define INSN_OPCODE_MASK	0x007c
 #define INSN_OPCODE_SHIFT	2
