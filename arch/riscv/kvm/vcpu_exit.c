@@ -180,6 +180,15 @@ static inline int vcpu_redirect(struct kvm_vcpu *vcpu, struct kvm_cpu_trap *trap
 	return ret;
 }
 
+static int kvm_riscv_software_check(struct kvm_vcpu *vcpu,
+				    struct kvm_cpu_trap *trap)
+{
+	pr_err("Software check exception\n");
+	/* todo: implement sse support */
+
+	return -EOPNOTSUPP;
+}
+
 /*
  * Return > 0 to return to guest, < 0 on error, 0 (and set exit_reason) on
  * proper exit to userspace.
@@ -242,6 +251,10 @@ int kvm_riscv_vcpu_exit(struct kvm_vcpu *vcpu, struct kvm_run *run,
 	case EXC_BREAKPOINT:
 		run->exit_reason = KVM_EXIT_DEBUG;
 		ret = 0;
+		break;
+	case EXC_SOFTWARE_CHECK:
+		if (vcpu->arch.guest_context.hstatus & HSTATUS_SPV)
+			ret = kvm_riscv_software_check(vcpu, trap);
 		break;
 	default:
 		break;
