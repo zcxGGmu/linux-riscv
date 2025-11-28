@@ -215,6 +215,47 @@ static long kvm_sbi_fwft_get_pointer_masking_pmlen(struct kvm_vcpu *vcpu,
 
 #endif
 
+static bool kvm_sbi_fwft_pointer_landing_pad_supported(struct kvm_vcpu *vcpu)
+{
+	return riscv_isa_extension_available(vcpu->arch.isa, ZICFILP);
+}
+
+static void kvm_sbi_fwft_reset_landing_pad(struct kvm_vcpu *vcpu)
+{
+	vcpu->arch.cfg.henvcfg &= ~ENVCFG_LPE;
+}
+
+static long kvm_sbi_fwft_set_landing_pad(struct kvm_vcpu *vcpu,
+						   struct kvm_sbi_fwft_config *conf,
+						   bool one_reg_access, unsigned long value)
+{
+	struct kvm_vcpu_config *cfg = &vcpu->arch.cfg;
+
+	if (value == 1) {
+		cfg->henvcfg |= ENVCFG_LPE;
+		if (!one_reg_access)
+			csr_write(CSR_HENVCFG, cfg->henvcfg);
+	} else if (value == 0) {
+		cfg->henvcfg &= ~ENVCFG_LPE;
+		if (!one_reg_access)
+			csr_write(CSR_HENVCFG, cfg->henvcfg);
+	} else {
+		return SBI_ERR_INVALID_PARAM;
+	}
+
+	return SBI_SUCCESS;
+}
+
+static long kvm_sbi_fwft_get_landing_pad(struct kvm_vcpu *vcpu,
+						   struct kvm_sbi_fwft_config *conf,
+						   bool one_reg_access, unsigned long *value)
+{
+	struct kvm_vcpu_config *cfg = &vcpu->arch.cfg;
+
+	*value = (cfg->henvcfg & ENVCFG_LPE) == ENVCFG_LPE;
+	return SBI_SUCCESS;
+}
+
 static const struct kvm_sbi_fwft_feature features[] = {
 	{
 		.id = SBI_FWFT_MISALIGNED_EXC_DELEG,
@@ -236,6 +277,15 @@ static const struct kvm_sbi_fwft_feature features[] = {
 		.get = kvm_sbi_fwft_get_pointer_masking_pmlen,
 	},
 #endif
+	{
+		.id = SBI_FWFT_LANDING_PAD,
+		.first_reg_num = offsetof(struct kvm_riscv_sbi_fwft, landing_pad.enable) /
+				 sizeof(unsigned long),
+		.supported = kvm_sbi_fwft_landing_pad_supported,
+		.reset = kvm_sbi_fwft_reset_landing_pad,
+		.set = kvm_sbi_fwft_set_landing_pad,
+		.get = kvm_sbi_fwft_get_landing_pad,
+	},
 };
 
 static const struct kvm_sbi_fwft_feature *kvm_sbi_fwft_regnum_to_feature(unsigned long reg_num)
