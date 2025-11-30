@@ -1,4 +1,3 @@
-vstate_exec_nolibc
-vstate_prctl
-v_initval
-v_exec_initval_nolibc
+riscv-vector-stress
+v-test
+kernel-test
