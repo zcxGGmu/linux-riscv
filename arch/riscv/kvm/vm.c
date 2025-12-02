@@ -13,6 +13,9 @@
 #include <linux/kvm_host.h>
 #include <asm/kvm_mmu.h>
 
+/* Forward declaration for ptdump function */
+void kvm_riscv_gstage_ptdump_create_debugfs(struct kvm *kvm);
+
 const struct _kvm_stats_desc kvm_vm_stats_desc[] = {
 	KVM_GENERIC_VM_STATS()
 };
@@ -54,6 +57,11 @@ void kvm_arch_destroy_vm(struct kvm *kvm)
 	kvm_destroy_vcpus(kvm);
 
 	kvm_riscv_aia_destroy_vm(kvm);
+}
+
+void kvm_arch_create_vm_debugfs(struct kvm *kvm)
+{
+	kvm_riscv_gstage_ptdump_create_debugfs(kvm);
 }
 
 int kvm_vm_ioctl_irq_line(struct kvm *kvm, struct kvm_irq_level *irql,
