@@ -18,4 +18,10 @@ int kvm_riscv_mmu_alloc_pgd(struct kvm *kvm);
 void kvm_riscv_mmu_free_pgd(struct kvm *kvm);
 void kvm_riscv_mmu_update_hgatp(struct kvm_vcpu *vcpu);
 
+#ifdef CONFIG_DEBUG_FS
+void kvm_gstage_ptdump_create_debugfs(struct kvm *kvm);
+#else
+static inline void kvm_gstage_ptdump_create_debugfs(struct kvm *kvm) { }
+#endif
+
 #endif

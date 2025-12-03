@@ -223,6 +223,11 @@ int kvm_vm_ioctl_enable_cap(struct kvm *kvm, struct kvm_enable_cap *cap)
 	}
 }
 
+void kvm_arch_create_vm_debugfs(struct kvm *kvm)
+{
+	kvm_gstage_ptdump_create_debugfs(kvm);
+}
+
 int kvm_arch_vm_ioctl(struct file *filp, unsigned int ioctl, unsigned long arg)
 {
 	return -EINVAL;
