@@ -1329,7 +1329,7 @@ static int f2fs_write_compressed_pages(struct compress_ctx *cc,
 	}
 
 	folio = page_folio(cc->rpages[last_index]);
-	psize = folio_pos(folio) + folio_size(folio);
+	psize = folio_next_pos(folio);
 
 	err = f2fs_get_node_info(fio.sbi, dn.nid, &ni, false);
 	if (err)
@@ -1947,7 +1947,7 @@ static void f2fs_cache_compressed_page(struct f2fs_sb_info *sbi,
 		return;
 	}
 
-	cfolio = filemap_alloc_folio(__GFP_NOWARN | __GFP_IO, 0);
+	cfolio = filemap_alloc_folio(__GFP_NOWARN | __GFP_IO, 0, NULL);
 	if (!cfolio)
 		return;
 
