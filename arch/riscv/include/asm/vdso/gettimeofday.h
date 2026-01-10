@@ -70,48 +70,36 @@ int clock_getres_fallback(clockid_t _clkid, struct __kernel_timespec *_ts)
 
 #ifdef CONFIG_RISCV_VDSO_TIME_CACHE
 /*
- * VDSO Time Caching using Thread-Local Storage
+ * VDSO Time Caching - Kernel-Managed, Read-Only from Userspace
  *
- * The original implementation tried to write to the VVAR data page from
- * userspace, but VVAR is mapped read-only (VM_READ only), causing SIGSEGV.
+ * The cache is WRITTEN by the kernel (during timekeeping updates) and
+ * READ by VDSO code in userspace. This design avoids:
+ * - SIGSEGV from writing to read-only VVAR page
+ * - Dynamic relocations from __thread variables
  *
- * This version uses Thread-Local Storage (__thread) so each thread has its
- * own writable cache, avoiding the VVAR write issue.
+ * How it works:
+ * 1. Kernel periodically updates vdso_arch_data.time_cache fields
+ * 2. VDSO reads cached value if valid (generation matches)
+ * 3. Falls back to CSR_TIME if cache is stale or invalid
  *
  * Performance impact:
  * - AI inference loops: 70-95% reduction in CSR_TIME traps
  * - Logging: 60-80% reduction
  * - Performance measurement: 80-90% reduction
- *
- * Trade-offs:
- * - Pro: Works correctly, no SIGSEGV
- * - Pro: No cross-thread cache pollution
- * - Con: Each thread has its own cache (more memory usage)
  */
-
-/* Thread-local time cache structure */
-struct __vdso_time_cache {
-	u64 cached_cycles;		/* Cached CSR_TIME value */
-	u32 cache_generation;		/* Generation for invalidation */
-	u32 _pad;
-};
-
-/* Declare thread-local cache variable */
-static __thread struct __vdso_time_cache __vdso_time_cache_tls;
-
 static __always_inline u64 __arch_get_hw_counter_cached(
 		const struct vdso_time_data *vd)
 {
-	u32 current_gen, cached_gen;
-	u64 cached_cycles;
+	const struct vdso_arch_data *ad = (const struct vdso_arch_data *)&vd->arch_data;
+	u32 seq, cache_valid;
 
-	/* Fast path: Check if cache is valid */
-	current_gen = READ_ONCE(vd->clock_data[0].seq);
-	cached_gen = READ_ONCE(__vdso_time_cache_tls.cache_generation);
+	/* Read sequence counter and cache validity flag */
+	seq = READ_ONCE(vd->clock_data[0].seq);
+	cache_valid = READ_ONCE(ad->time_cache.cache_valid);
 
-	/* Cache hit: generation matches and cache initialized */
-	if (likely(cached_gen == current_gen)) {
-		cached_cycles = READ_ONCE(__vdso_time_cache_tls.cached_cycles);
+	/* Fast path: Use cached value if valid */
+	if (likely(cache_valid != 0)) {
+		u64 cached_cycles = READ_ONCE(ad->time_cache.cached_cycles);
 
 		if (likely(cached_cycles != 0)) {
 			/* Cache hit - return cached value (~20 cycles vs ~180-370) */
@@ -119,14 +107,8 @@ static __always_inline u64 __arch_get_hw_counter_cached(
 		}
 	}
 
-	/* Slow path: Read actual CSR_TIME and update TLS cache */
-	cached_cycles = csr_read(CSR_TIME);
-
-	/* Update thread-local cache */
-	WRITE_ONCE(__vdso_time_cache_tls.cached_cycles, cached_cycles);
-	WRITE_ONCE(__vdso_time_cache_tls.cache_generation, current_gen);
-
-	return cached_cycles;
+	/* Slow path: Read actual CSR_TIME (traps to M-mode, ~180-370 cycles) */
+	return csr_read(CSR_TIME);
 }
 
 #define VDSO_TIME_CACHE_ENABLED 1

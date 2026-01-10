@@ -1070,7 +1070,7 @@ config RISCV_BOOT_SPINWAIT
 config RISCV_VDSO_TIME_CACHE
 	bool "RISC-V VDSO time caching optimization"
 	depends on GENERIC_GETTIMEOFDAY
-	default n
+	default y
 	help
 	  This option enables time caching in the RISC-V VDSO layer to
 	  reduce the overhead of CSR_TIME reads which trap to M-mode.
