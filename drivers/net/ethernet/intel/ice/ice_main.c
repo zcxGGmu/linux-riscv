@@ -4699,8 +4699,8 @@ static int ice_cfg_netdev(struct ice_vsi *vsi)
 	struct net_device *netdev;
 	u8 mac_addr[ETH_ALEN];
 
-	netdev = alloc_etherdev_mqs(sizeof(*np), vsi->alloc_txq,
-				    vsi->alloc_rxq);
+	netdev = alloc_etherdev_mqs(sizeof(*np), ice_get_max_txq(vsi->back),
+				    ice_get_max_rxq(vsi->back));
 	if (!netdev)
 		return -ENOMEM;
 
@@ -5028,7 +5028,7 @@ static int ice_init(struct ice_pf *pf)
 	}
 
 	if (pf->hw.mac_type == ICE_MAC_E830) {
-		err = pci_enable_ptm(pf->pdev, NULL);
+		err = pci_enable_ptm(pf->pdev);
 		if (err)
 			dev_dbg(dev, "PCIe PTM not supported by PCIe bus/controller\n");
 	}
