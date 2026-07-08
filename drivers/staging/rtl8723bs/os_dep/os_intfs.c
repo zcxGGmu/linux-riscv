@@ -288,8 +288,8 @@ static int rtw_net_set_mac_address(struct net_device *pnetdev, void *p)
 static struct net_device_stats *rtw_net_get_stats(struct net_device *pnetdev)
 {
 	struct adapter *padapter = rtw_netdev_priv(pnetdev);
-	struct xmit_priv *pxmitpriv = &(padapter->xmitpriv);
-	struct recv_priv *precvpriv = &(padapter->recvpriv);
+	struct xmit_priv *pxmitpriv = &padapter->xmitpriv;
+	struct recv_priv *precvpriv = &padapter->recvpriv;
 
 	padapter->stats.tx_packets = pxmitpriv->tx_pkts;/* pxmitpriv->tx_pkts++; */
 	padapter->stats.rx_packets = precvpriv->rx_pkts;/* precvpriv->rx_pkts++; */
@@ -492,7 +492,7 @@ void rtw_stop_drv_threads(struct adapter *padapter)
 {
 	rtw_stop_cmd_thread(padapter);
 
-	/*  Below is to termindate tx_thread... */
+	/*  Below is to terminate tx_thread... */
 	complete(&padapter->xmitpriv.xmit_comp);
 	wait_for_completion(&padapter->xmitpriv.terminate_xmitthread_comp);
 
@@ -550,7 +550,7 @@ static void rtw_init_default_value(struct adapter *padapter)
 	rtw_update_registrypriv_dev_network(padapter);
 
 	/* hal_priv */
-	rtw_hal_def_value_init(padapter);
+	rtl8723bs_init_default_value(padapter);
 
 	/* misc. */
 	RTW_ENABLE_FUNC(padapter, DF_RX_BIT);
@@ -609,7 +609,7 @@ void rtw_reset_drv_sw(struct adapter *padapter)
 	struct pwrctrl_priv *pwrctrlpriv = adapter_to_pwrctl(padapter);
 
 	/* hal_priv */
-	rtw_hal_def_value_init(padapter);
+	rtl8723bs_init_default_value(padapter);
 
 	RTW_ENABLE_FUNC(padapter, DF_RX_BIT);
 	RTW_ENABLE_FUNC(padapter, DF_TX_BIT);
@@ -618,11 +618,10 @@ void rtw_reset_drv_sw(struct adapter *padapter)
 	padapter->xmitpriv.tx_pkts = 0;
 	padapter->recvpriv.rx_pkts = 0;
 
-	pmlmepriv->LinkDetectInfo.bBusyTraffic = false;
+	pmlmepriv->link_detect_info.busy_traffic = false;
 
-	/* pmlmepriv->LinkDetectInfo.TrafficBusyState = false; */
-	pmlmepriv->LinkDetectInfo.TrafficTransitionCount = 0;
-	pmlmepriv->LinkDetectInfo.LowPowerTransitionCount = 0;
+	pmlmepriv->link_detect_info.traffic_transition_count = 0;
+	pmlmepriv->link_detect_info.low_power_transition_count = 0;
 
 	_clr_fwstate_(pmlmepriv, _FW_UNDER_SURVEY | _FW_UNDER_LINKING);
 
@@ -637,6 +636,8 @@ void rtw_reset_drv_sw(struct adapter *padapter)
 
 u8 rtw_init_drv_sw(struct adapter *padapter)
 {
+	int res;
+
 	rtw_init_default_value(padapter);
 
 	rtw_init_hal_com_default_value(padapter);
@@ -654,7 +655,8 @@ u8 rtw_init_drv_sw(struct adapter *padapter)
 
 	init_mlme_ext_priv(padapter);
 
-	if (_rtw_init_xmit_priv(&padapter->xmitpriv, padapter) == _FAIL)
+	res = _rtw_init_xmit_priv(&padapter->xmitpriv, padapter);
+	if (res)
 		goto free_mlme_ext;
 
 	if (_rtw_init_recv_priv(&padapter->recvpriv, padapter) == _FAIL)
@@ -675,7 +677,7 @@ u8 rtw_init_drv_sw(struct adapter *padapter)
 
 	rtw_init_pwrctrl_priv(padapter);
 
-	rtw_hal_dm_init(padapter);
+	rtl8723b_init_dm_priv(padapter);
 
 	return _SUCCESS;
 
@@ -735,7 +737,7 @@ u8 rtw_free_drv_sw(struct adapter *padapter)
 
 	/* kfree((void *)padapter); */
 
-	rtw_hal_free_data(padapter);
+	rtw_hal_data_deinit(padapter);
 
 	/* free the old_pnetdev */
 	if (padapter->rereg_nd_name_priv.old_pnetdev) {
@@ -960,7 +962,6 @@ static int netdev_close(struct net_device *pnetdev)
 	}
 
 	rtw_scan_abort(padapter);
-	adapter_wdev_data(padapter)->bandroid_scan = false;
 
 	return 0;
 }
@@ -988,12 +989,10 @@ void rtw_dev_unload(struct adapter *padapter)
 			rtw_stop_drv_threads(padapter);
 
 		while (atomic_read(&pcmdpriv->cmdthd_running)) {
-			if (cnt > 5) {
+			if (cnt > 5)
 				break;
-			} else {
-				cnt++;
-				msleep(10);
-			}
+			cnt++;
+			msleep(10);
 		}
 
 		/* check the status of IPS */
@@ -1137,12 +1136,12 @@ static int rtw_resume_process_normal(struct adapter *padapter)
 	pwrpriv = adapter_to_pwrctl(padapter);
 	pmlmepriv = &padapter->mlmepriv;
 	/*  interface init */
-	/* if (sdio_init(adapter_to_dvobj(padapter)) != _SUCCESS) */
-	if ((padapter->intf_init) && (padapter->intf_init(adapter_to_dvobj(padapter)) != _SUCCESS)) {
-		ret = -1;
-		goto exit;
+	if (padapter->intf_init) {
+		ret = padapter->intf_init(adapter_to_dvobj(padapter));
+		if (ret)
+			goto exit;
 	}
-	rtw_hal_disable_interrupt(padapter);
+	rtw_sdio_disable_interrupt(padapter);
 	/* if (sdio_alloc_irq(adapter_to_dvobj(padapter)) != _SUCCESS) */
 	if ((padapter->intf_alloc_irq) && (padapter->intf_alloc_irq(adapter_to_dvobj(padapter)) != _SUCCESS)) {
 		ret = -1;

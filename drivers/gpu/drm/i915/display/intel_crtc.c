@@ -7,6 +7,7 @@
 #include <linux/slab.h>
 
 #include <drm/drm_atomic_helper.h>
+#include <drm/drm_blend.h>
 #include <drm/drm_fourcc.h>
 #include <drm/drm_plane.h>
 #include <drm/drm_print.h>
@@ -55,7 +56,7 @@ struct intel_crtc *intel_crtc_for_pipe(struct intel_display *display,
 {
 	struct intel_crtc *crtc;
 
-	for_each_intel_crtc(display->drm, crtc) {
+	for_each_intel_crtc(display, crtc) {
 		if (crtc->pipe == pipe)
 			return crtc;
 	}
@@ -209,6 +210,8 @@ static struct intel_crtc *intel_crtc_alloc(void)
 	crtc->base.state = &crtc_state->uapi;
 	crtc->config = crtc_state;
 
+	INIT_LIST_HEAD(&crtc->pipe_head);
+
 	return crtc;
 }
 
@@ -221,6 +224,8 @@ static void intel_crtc_free(struct intel_crtc *crtc)
 static void intel_crtc_destroy(struct drm_crtc *_crtc)
 {
 	struct intel_crtc *crtc = to_intel_crtc(_crtc);
+
+	list_del(&crtc->pipe_head);
 
 	cpu_latency_qos_remove_request(&crtc->vblank_pm_qos);
 
@@ -308,6 +313,20 @@ static const struct drm_crtc_funcs i8xx_crtc_funcs = {
 	.get_vblank_timestamp = intel_crtc_get_vblank_timestamp,
 };
 
+static void add_crtc_to_pipe_list(struct intel_display *display, struct intel_crtc *crtc)
+{
+	struct intel_crtc *iter;
+
+	list_for_each_entry(iter, &display->pipe_list, pipe_head) {
+		if (crtc->pipe < iter->pipe) {
+			list_add_tail(&crtc->pipe_head, &iter->pipe_head);
+			return;
+		}
+	}
+
+	list_add_tail(&crtc->pipe_head, &display->pipe_list);
+}
+
 static int __intel_crtc_init(struct intel_display *display, enum pipe pipe)
 {
 	struct intel_plane *primary, *cursor;
@@ -387,16 +406,19 @@ static int __intel_crtc_init(struct intel_display *display, enum pipe pipe)
 						BIT(DRM_SCALING_FILTER_DEFAULT) |
 						BIT(DRM_SCALING_FILTER_NEAREST_NEIGHBOR));
 
+	if (DISPLAY_VER(display) >= 9)
+		drm_crtc_attach_background_color_property(&crtc->base);
+
 	intel_color_crtc_init(crtc);
 	intel_drrs_crtc_init(crtc);
 	intel_crtc_crc_init(crtc);
 
 	cpu_latency_qos_add_request(&crtc->vblank_pm_qos, PM_QOS_DEFAULT_VALUE);
 
-	drm_WARN_ON(display->drm, drm_crtc_index(&crtc->base) != crtc->pipe);
-
 	if (HAS_CASF(display) && crtc->num_scalers >= 2)
 		drm_crtc_create_sharpness_strength_property(&crtc->base);
+
+	add_crtc_to_pipe_list(display, crtc);
 
 	return 0;
 
@@ -404,6 +426,31 @@ fail:
 	intel_crtc_free(crtc);
 
 	return ret;
+}
+
+#define HAS_PIPE(display, pipe) (DISPLAY_RUNTIME_INFO(display)->pipe_mask & BIT(pipe))
+
+/*
+ * Expose the pipes in order A, C, B, D on discrete platforms to trick user
+ * space into using pipes that are more likely to be available for both a) user
+ * space if pipe B has been reserved for the joiner, and b) the joiner if pipe A
+ * doesn't need the joiner.
+ *
+ * Swap pipes B and C only if both are available i.e. not fused off.
+ */
+static enum pipe reorder_pipe(struct intel_display *display, enum pipe pipe)
+{
+	if (!display->platform.dgfx || !HAS_PIPE(display, PIPE_B) || !HAS_PIPE(display, PIPE_C))
+		return pipe;
+
+	switch (pipe) {
+	case PIPE_B:
+		return PIPE_C;
+	case PIPE_C:
+		return PIPE_B;
+	default:
+		return pipe;
+	}
 }
 
 int intel_crtc_init(struct intel_display *display)
@@ -415,7 +462,7 @@ int intel_crtc_init(struct intel_display *display)
 		    INTEL_NUM_PIPES(display), str_plural(INTEL_NUM_PIPES(display)));
 
 	for_each_pipe(display, pipe) {
-		ret = __intel_crtc_init(display, pipe);
+		ret = __intel_crtc_init(display, reorder_pipe(display, pipe));
 		if (ret)
 			return ret;
 	}
@@ -491,9 +538,8 @@ void intel_wait_for_vblank_workers(struct intel_atomic_state *state)
 {
 	struct intel_crtc_state *crtc_state;
 	struct intel_crtc *crtc;
-	int i;
 
-	for_each_new_intel_crtc_in_state(state, crtc, crtc_state, i) {
+	for_each_new_intel_crtc_in_state(state, crtc, crtc_state) {
 		if (!intel_crtc_needs_vblank_work(crtc_state))
 			continue;
 
@@ -785,10 +831,8 @@ bool intel_any_crtc_enable_changed(struct intel_atomic_state *state)
 {
 	const struct intel_crtc_state *old_crtc_state, *new_crtc_state;
 	struct intel_crtc *crtc;
-	int i;
 
-	for_each_oldnew_intel_crtc_in_state(state, crtc, old_crtc_state,
-					    new_crtc_state, i) {
+	for_each_oldnew_intel_crtc_in_state(state, crtc, old_crtc_state, new_crtc_state) {
 		if (intel_crtc_enable_changed(old_crtc_state, new_crtc_state))
 			return true;
 	}
@@ -806,10 +850,8 @@ bool intel_any_crtc_active_changed(struct intel_atomic_state *state)
 {
 	const struct intel_crtc_state *old_crtc_state, *new_crtc_state;
 	struct intel_crtc *crtc;
-	int i;
 
-	for_each_oldnew_intel_crtc_in_state(state, crtc, old_crtc_state,
-					    new_crtc_state, i) {
+	for_each_oldnew_intel_crtc_in_state(state, crtc, old_crtc_state, new_crtc_state) {
 		if (intel_crtc_active_changed(old_crtc_state, new_crtc_state))
 			return true;
 	}

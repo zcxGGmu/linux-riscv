@@ -91,14 +91,8 @@ static inline void set_dma_ops(struct device *dev,
 #endif /* CONFIG_ARCH_HAS_DMA_OPS */
 
 #ifdef CONFIG_DMA_CMA
-extern struct cma *dma_contiguous_default_area;
-
-static inline struct cma *dev_get_cma_area(struct device *dev)
-{
-	if (dev && dev->cma_area)
-		return dev->cma_area;
-	return dma_contiguous_default_area;
-}
+struct cma *dev_get_cma_area(struct device *dev);
+struct cma *dma_contiguous_get_area_by_idx(unsigned int idx);
 
 void dma_contiguous_reserve(phys_addr_t addr_limit);
 int __init dma_contiguous_reserve_area(phys_addr_t size, phys_addr_t base,
@@ -114,6 +108,10 @@ void dma_free_contiguous(struct device *dev, struct page *page, size_t size);
 void dma_contiguous_early_fixup(phys_addr_t base, unsigned long size);
 #else /* CONFIG_DMA_CMA */
 static inline struct cma *dev_get_cma_area(struct device *dev)
+{
+	return NULL;
+}
+static inline struct cma *dma_contiguous_get_area_by_idx(unsigned int idx)
 {
 	return NULL;
 }
@@ -146,9 +144,6 @@ static inline void dma_free_contiguous(struct device *dev, struct page *page,
 		size_t size)
 {
 	__free_pages(page, get_order(size));
-}
-static inline void dma_contiguous_early_fixup(phys_addr_t base, unsigned long size)
-{
 }
 #endif /* CONFIG_DMA_CMA*/
 
@@ -230,7 +225,7 @@ int dma_direct_set_offset(struct device *dev, phys_addr_t cpu_start,
 extern bool dma_default_coherent;
 static inline bool dev_is_dma_coherent(struct device *dev)
 {
-	return dev->dma_coherent;
+	return dev_dma_coherent(dev);
 }
 #else
 #define dma_default_coherent true
@@ -245,8 +240,8 @@ static inline void dma_reset_need_sync(struct device *dev)
 {
 #ifdef CONFIG_DMA_NEED_SYNC
 	/* Reset it only once so that the function can be called on hotpath */
-	if (unlikely(dev->dma_skip_sync))
-		dev->dma_skip_sync = false;
+	if (unlikely(dev_dma_skip_sync(dev)))
+		dev_clear_dma_skip_sync(dev);
 #endif
 }
 
@@ -360,6 +355,12 @@ static inline void arch_sync_dma_for_cpu(phys_addr_t paddr, size_t size,
 {
 }
 #endif /* ARCH_HAS_SYNC_DMA_FOR_CPU */
+
+#ifndef CONFIG_ARCH_HAS_BATCHED_DMA_SYNC
+static inline void arch_sync_dma_flush(void)
+{
+}
+#endif
 
 #ifdef CONFIG_ARCH_HAS_SYNC_DMA_FOR_CPU_ALL
 void arch_sync_dma_for_cpu_all(void);

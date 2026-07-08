@@ -34,15 +34,14 @@ enum {
 
 struct io_mapped_ubuf {
 	u64		ubuf;
-	unsigned int	len;
+	size_t		len;
 	unsigned int	nr_bvecs;
 	unsigned int    folio_shift;
 	refcount_t	refs;
-	unsigned long	acct_pages;
-	void		(*release)(void *);
-	void		*priv;
 	u8		flags;
 	u8		dir;
+	void		(*release)(void *);
+	void		*priv;
 	struct bio_vec	bvec[] __counted_by(nr_bvecs);
 };
 
@@ -109,10 +108,15 @@ static inline void io_put_rsrc_node(struct io_ring_ctx *ctx, struct io_rsrc_node
 }
 
 static inline bool io_reset_rsrc_node(struct io_ring_ctx *ctx,
-				      struct io_rsrc_data *data, int index)
+				      struct io_rsrc_data *data,
+				      unsigned int index)
 {
-	struct io_rsrc_node *node = data->nodes[index];
+	struct io_rsrc_node *node;
 
+	if (index >= data->nr)
+		return false;
+	index = array_index_nospec(index, data->nr);
+	node = data->nodes[index];
 	if (!node)
 		return false;
 	io_put_rsrc_node(ctx, node);

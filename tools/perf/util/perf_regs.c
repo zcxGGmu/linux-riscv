@@ -19,9 +19,15 @@ int perf_sdt_arg_parse_op(uint16_t e_machine, char *old_op, char **new_op)
 	case EM_PPC64:
 		ret = __perf_sdt_arg_parse_op_powerpc(old_op, new_op);
 		break;
+	case EM_RISCV:
+		ret = __perf_sdt_arg_parse_op_riscv(old_op, new_op);
+		break;
 	case EM_386:
 	case EM_X86_64:
 		ret = __perf_sdt_arg_parse_op_x86(old_op, new_op);
+		break;
+	case EM_S390:
+		ret = __perf_sdt_arg_parse_op_s390(old_op, new_op);
 		break;
 	default:
 		pr_debug("Unknown ELF machine %d, standard arguments parse will be skipped.\n",

@@ -16,7 +16,7 @@
 #include <linux/cleanup.h>
 #include <linux/errno.h>
 #include <linux/kobject.h>
-#include <linux/mod_devicetable.h>
+#include <linux/device-id/of.h>
 #include <linux/property.h>
 #include <linux/list.h>
 
@@ -410,7 +410,7 @@ extern int of_alias_get_id(const struct device_node *np, const char *stem);
 extern int of_alias_get_highest_id(const char *stem);
 
 bool of_machine_compatible_match(const char *const *compats);
-bool of_machine_device_match(const struct of_device_id *matches);
+const struct of_device_id *of_machine_get_match(const struct of_device_id *matches);
 const void *of_machine_get_match_data(const struct of_device_id *matches);
 
 /**
@@ -465,8 +465,17 @@ const char *of_prop_next_string(const struct property *prop, const char *cur);
 bool of_console_check(const struct device_node *dn, char *name, int index);
 
 int of_map_id(const struct device_node *np, u32 id,
-	       const char *map_name, const char *map_mask_name,
-	       struct device_node **target, u32 *id_out);
+	       const char *map_name, const char *cells_name,
+	       const char *map_mask_name,
+	       struct device_node * const *filter_np,
+	       struct of_phandle_args *arg);
+
+int of_map_iommu_id(const struct device_node *np, u32 id,
+		    struct of_phandle_args *arg);
+
+int of_map_msi_id(const struct device_node *np, u32 id,
+		  struct device_node * const *filter_np,
+		  struct of_phandle_args *arg);
 
 phys_addr_t of_dma_get_max_cpu_address(struct device_node *np);
 
@@ -880,9 +889,9 @@ static inline bool of_machine_compatible_match(const char *const *compats)
 	return false;
 }
 
-static inline bool of_machine_device_match(const struct of_device_id *matches)
+static inline const struct of_device_id *of_machine_get_match(const struct of_device_id *matches)
 {
-	return false;
+	return NULL;
 }
 
 static inline const void *
@@ -942,8 +951,23 @@ static inline void of_property_clear_flag(struct property *p, unsigned long flag
 }
 
 static inline int of_map_id(const struct device_node *np, u32 id,
-			     const char *map_name, const char *map_mask_name,
-			     struct device_node **target, u32 *id_out)
+			     const char *map_name, const char *cells_name,
+			     const char *map_mask_name,
+			     struct device_node * const *filter_np,
+			     struct of_phandle_args *arg)
+{
+	return -EINVAL;
+}
+
+static inline int of_map_iommu_id(const struct device_node *np, u32 id,
+				  struct of_phandle_args *arg)
+{
+	return -EINVAL;
+}
+
+static inline int of_map_msi_id(const struct device_node *np, u32 id,
+				struct device_node * const *filter_np,
+				struct of_phandle_args *arg)
 {
 	return -EINVAL;
 }
@@ -989,6 +1013,11 @@ static inline int of_numa_init(void)
 	return -ENOSYS;
 }
 #endif
+
+static inline bool of_machine_device_match(const struct of_device_id *matches)
+{
+	return of_machine_get_match(matches) != NULL;
+}
 
 static inline struct device_node *of_find_matching_node(
 	struct device_node *from,
@@ -1469,6 +1498,13 @@ static inline int of_property_read_s32(const struct device_node *np,
 				       s32 *out_value)
 {
 	return of_property_read_u32(np, propname, (u32*) out_value);
+}
+
+static inline int of_property_read_s32_index(const struct device_node *np,
+					     const char *propname, u32 index,
+					     s32 *out_value)
+{
+	return of_property_read_u32_index(np, propname, index, (u32 *)out_value);
 }
 
 #define of_for_each_phandle(it, err, np, ln, cn, cc)			\

@@ -17,7 +17,6 @@
 #include <linux/math.h>
 #include <linux/math64.h>
 #include <linux/module.h>
-#include <linux/mod_devicetable.h>
 #include <linux/mutex.h>
 #include <linux/platform_device.h>
 #include <linux/property.h>
@@ -114,7 +113,6 @@ struct axi_dac_state {
 	const struct axi_dac_info *info;
 	u64 dac_clk;
 	u32 reg_config;
-	bool int_tone;
 	int dac_clk_rate;
 };
 
@@ -869,11 +867,13 @@ static const struct iio_backend_ops axi_ad3552r_ops = {
 static const struct iio_backend_info axi_dac_generic = {
 	.name = "axi-dac",
 	.ops = &axi_dac_generic_ops,
+	.caps = IIO_BACKEND_CAP_BUFFER | IIO_BACKEND_CAP_ENABLE,
 };
 
 static const struct iio_backend_info axi_ad3552r = {
 	.name = "axi-ad3552r",
 	.ops = &axi_ad3552r_ops,
+	.caps = IIO_BACKEND_CAP_BUFFER | IIO_BACKEND_CAP_ENABLE,
 };
 
 static const struct regmap_config axi_dac_regmap_config = {

@@ -9,7 +9,6 @@
 #include <linux/auxiliary_bus.h>
 #include <linux/dev_printk.h>
 #include <linux/kernel.h>
-#include <linux/mod_devicetable.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
 #include <linux/slab.h>
@@ -776,7 +775,7 @@ static int ljca_probe(struct usb_interface *interface,
 	init_completion(&adap->cmd_completion);
 	INIT_LIST_HEAD(&adap->client_list);
 
-	adap->intf = usb_get_intf(interface);
+	adap->intf = interface;
 	adap->usb_dev = usb_dev;
 	adap->dev = dev;
 
@@ -787,7 +786,7 @@ static int ljca_probe(struct usb_interface *interface,
 	ret = usb_find_common_endpoints(alt, &ep_in, &ep_out, NULL, NULL);
 	if (ret) {
 		dev_err(dev, "bulk endpoints not found\n");
-		goto err_put;
+		goto err_destroy_mutex;
 	}
 	adap->rx_pipe = usb_rcvbulkpipe(usb_dev, usb_endpoint_num(ep_in));
 	adap->tx_pipe = usb_sndbulkpipe(usb_dev, usb_endpoint_num(ep_out));
@@ -797,14 +796,14 @@ static int ljca_probe(struct usb_interface *interface,
 	adap->rx_buf = devm_kzalloc(dev, adap->rx_len, GFP_KERNEL);
 	if (!adap->rx_buf) {
 		ret = -ENOMEM;
-		goto err_put;
+		goto err_destroy_mutex;
 	}
 
 	/* alloc rx urb */
 	adap->rx_urb = usb_alloc_urb(0, GFP_KERNEL);
 	if (!adap->rx_urb) {
 		ret = -ENOMEM;
-		goto err_put;
+		goto err_destroy_mutex;
 	}
 	usb_fill_bulk_urb(adap->rx_urb, usb_dev, adap->rx_pipe,
 			  adap->rx_buf, adap->rx_len, ljca_recv, adap);
@@ -836,10 +835,7 @@ static int ljca_probe(struct usb_interface *interface,
 
 err_free:
 	usb_free_urb(adap->rx_urb);
-
-err_put:
-	usb_put_intf(adap->intf);
-
+err_destroy_mutex:
 	mutex_destroy(&adap->mutex);
 
 	return ret;
@@ -863,8 +859,6 @@ static void ljca_disconnect(struct usb_interface *interface)
 	}
 
 	usb_free_urb(adap->rx_urb);
-
-	usb_put_intf(adap->intf);
 
 	mutex_destroy(&adap->mutex);
 }

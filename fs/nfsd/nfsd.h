@@ -45,11 +45,10 @@ bool nfsd_support_version(int vers);
 
 /*
  * Default and maximum payload size (NFS READ or WRITE), in bytes.
- * The default is historical, and the maximum is an implementation
- * limit.
+ * The maximum is an implementation limit.
  */
 enum {
-	NFSSVC_DEFBLKSIZE       = 1 * 1024 * 1024,
+	NFSSVC_DEFBLKSIZE       = 4 * 1024 * 1024,
 	NFSSVC_MAXBLKSIZE       = RPCSVC_MAXPAYLOAD,
 };
 
@@ -60,27 +59,17 @@ struct readdir_cd {
 /* Maximum number of operations per session compound */
 #define NFSD_MAX_OPS_PER_COMPOUND	200
 
-struct nfsd_genl_rqstp {
-	struct sockaddr		rq_daddr;
-	struct sockaddr		rq_saddr;
-	unsigned long		rq_flags;
-	ktime_t			rq_stime;
-	__be32			rq_xid;
-	u32			rq_vers;
-	u32			rq_prog;
-	u32			rq_proc;
-
-	/* NFSv4 compound */
-	u32			rq_opcnt;
-	u32			rq_opnum[16];
-};
-
 extern struct svc_program	nfsd_programs[];
 extern const struct svc_version	nfsd_version2, nfsd_version3, nfsd_version4;
 extern struct mutex		nfsd_mutex;
 extern atomic_t			nfsd_th_cnt;		/* number of available threads */
 
 extern const struct seq_operations nfs_exports_op;
+
+struct nfsd_thread_local_info {
+	struct nfs4_client	**ntli_lease_breaker;
+	int			ntli_cachetype;
+};
 
 /*
  * Common void argument and result helpers
@@ -118,7 +107,7 @@ struct dentry *nfsd_client_mkdir(struct nfsd_net *nn,
 				 const struct tree_descr *,
 				 struct dentry **fdentries);
 void nfsd_client_rmdir(struct dentry *dentry);
-
+int nfsd_cache_notify(struct cache_detail *cd, struct cache_head *h, u32 cache_type);
 
 #if defined(CONFIG_NFSD_V2_ACL) || defined(CONFIG_NFSD_V3_ACL)
 #ifdef CONFIG_NFSD_V2_ACL
@@ -155,6 +144,7 @@ static inline void nfsd_debugfs_exit(void) {}
 #endif
 
 extern bool nfsd_disable_splice_read __read_mostly;
+extern bool nfsd_delegts_enabled __read_mostly;
 
 enum {
 	/* Any new NFSD_IO enum value must be added at the end */

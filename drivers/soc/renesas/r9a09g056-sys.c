@@ -88,13 +88,9 @@ static const struct rz_sysc_soc_id_init_data rzv2n_sys_soc_id_init_data __initco
 	.print_id = rzv2n_sys_print_id,
 };
 
-static bool rzv2n_regmap_readable_reg(struct device *dev, unsigned int reg)
+static bool rzv2n_regmap_readable_writeable_reg(unsigned int reg)
 {
 	switch (reg) {
-	case SYS_LSI_OTPTSU0TRMVAL0:
-	case SYS_LSI_OTPTSU0TRMVAL1:
-	case SYS_LSI_OTPTSU1TRMVAL0:
-	case SYS_LSI_OTPTSU1TRMVAL1:
 	case SYS_GBETH0_CFG:
 	case SYS_GBETH1_CFG:
 	case SYS_PCIE_INTX_CH0:
@@ -108,6 +104,22 @@ static bool rzv2n_regmap_readable_reg(struct device *dev, unsigned int reg)
 	case SYS_PCIE_MISC_CH0:
 	case SYS_PCIE_MODE_CH0:
 	case SYS_ADC_CFG:
+		return true;
+	default:
+		return false;
+	}
+}
+
+static bool rzv2n_regmap_readable_reg(struct device *dev, unsigned int reg)
+{
+	if (rzv2n_regmap_readable_writeable_reg(reg))
+		return true;
+
+	switch (reg) {
+	case SYS_LSI_OTPTSU0TRMVAL0:
+	case SYS_LSI_OTPTSU0TRMVAL1:
+	case SYS_LSI_OTPTSU1TRMVAL0:
+	case SYS_LSI_OTPTSU1TRMVAL1:
 		return true;
 	default:
 		return false;
@@ -116,27 +128,10 @@ static bool rzv2n_regmap_readable_reg(struct device *dev, unsigned int reg)
 
 static bool rzv2n_regmap_writeable_reg(struct device *dev, unsigned int reg)
 {
-	switch (reg) {
-	case SYS_GBETH0_CFG:
-	case SYS_GBETH1_CFG:
-	case SYS_PCIE_INTX_CH0:
-	case SYS_PCIE_MSI1_CH0:
-	case SYS_PCIE_MSI2_CH0:
-	case SYS_PCIE_MSI3_CH0:
-	case SYS_PCIE_MSI4_CH0:
-	case SYS_PCIE_MSI5_CH0:
-	case SYS_PCIE_PME_CH0:
-	case SYS_PCIE_ACK_CH0:
-	case SYS_PCIE_MISC_CH0:
-	case SYS_PCIE_MODE_CH0:
-	case SYS_ADC_CFG:
-		return true;
-	default:
-		return false;
-	}
+	return rzv2n_regmap_readable_writeable_reg(reg);
 }
 
-const struct rz_sysc_init_data rzv2n_sys_init_data = {
+const struct rz_sysc_init_data rzv2n_sys_init_data __initconst = {
 	.soc_id_init_data = &rzv2n_sys_soc_id_init_data,
 	.readable_reg = rzv2n_regmap_readable_reg,
 	.writeable_reg = rzv2n_regmap_writeable_reg,

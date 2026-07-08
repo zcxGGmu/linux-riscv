@@ -3,7 +3,6 @@
 #include <linux/bitfield.h>
 #include <linux/module.h>
 #include <linux/mfd/syscon.h>
-#include <linux/mod_devicetable.h>
 #include <linux/of.h>
 #include <linux/platform_device.h>
 #include <linux/regmap.h>
@@ -686,7 +685,7 @@ static int mpfs_pinctrl_probe(struct platform_device *pdev)
 
 	pctrl->regmap = device_node_to_regmap(pdev->dev.parent->of_node);
 	if (IS_ERR(pctrl->regmap))
-		dev_err_probe(dev, PTR_ERR(pctrl->regmap), "Failed to find syscon regmap\n");
+		return dev_err_probe(dev, PTR_ERR(pctrl->regmap), "Failed to find syscon regmap\n");
 
 	pctrl->sysreg_regmap = syscon_regmap_lookup_by_compatible("microchip,mpfs-sysreg-scb");
 	if (IS_ERR(pctrl->sysreg_regmap))

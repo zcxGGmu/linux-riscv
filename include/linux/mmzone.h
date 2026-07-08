@@ -177,9 +177,12 @@ static inline bool migratetype_is_mergeable(int mt)
 	return mt < MIGRATE_PCPTYPES;
 }
 
-#define for_each_migratetype_order(order, type) \
-	for (order = 0; order < NR_PAGE_ORDERS; order++) \
-		for (type = 0; type < MIGRATE_TYPES; type++)
+#define for_each_free_list(list, zone, order) 				\
+	for (order = 0; order < NR_PAGE_ORDERS; order++) 		\
+		for (unsigned int __type = 0; 				\
+		     __type < MIGRATE_TYPES &&				\
+			(list = &(zone)->free_area[order].free_list[__type], 1); \
+		     __type++)
 
 extern int page_group_by_mobility_disabled;
 
@@ -211,7 +214,6 @@ enum numa_stat_item {
 #endif
 
 enum zone_stat_item {
-	/* First 128 byte cacheline (assuming 64 bit words) */
 	NR_FREE_PAGES,
 	NR_FREE_PAGES_BLOCKS,
 	NR_ZONE_LRU_BASE, /* Used only for compaction and reclaim retry */
@@ -222,7 +224,6 @@ enum zone_stat_item {
 	NR_ZONE_UNEVICTABLE,
 	NR_ZONE_WRITE_PENDING,	/* Count of dirty, writeback and unstable pages */
 	NR_MLOCK,		/* mlock()ed pages found and moved off LRU */
-	/* Second 128 byte cacheline */
 #if IS_ENABLED(CONFIG_ZSMALLOC)
 	NR_ZSPAGES,		/* allocated in zsmalloc */
 #endif
@@ -694,6 +695,9 @@ void lru_gen_online_memcg(struct mem_cgroup *memcg);
 void lru_gen_offline_memcg(struct mem_cgroup *memcg);
 void lru_gen_release_memcg(struct mem_cgroup *memcg);
 void lru_gen_soft_reclaim(struct mem_cgroup *memcg, int nid);
+void max_lru_gen_memcg(struct mem_cgroup *memcg, int nid);
+bool recheck_lru_gen_max_memcg(struct mem_cgroup *memcg, int nid);
+void lru_gen_reparent_memcg(struct mem_cgroup *memcg, struct mem_cgroup *parent, int nid);
 
 #else /* !CONFIG_LRU_GEN */
 
@@ -732,6 +736,20 @@ static inline void lru_gen_release_memcg(struct mem_cgroup *memcg)
 }
 
 static inline void lru_gen_soft_reclaim(struct mem_cgroup *memcg, int nid)
+{
+}
+
+static inline void max_lru_gen_memcg(struct mem_cgroup *memcg, int nid)
+{
+}
+
+static inline bool recheck_lru_gen_max_memcg(struct mem_cgroup *memcg, int nid)
+{
+	return true;
+}
+
+static inline
+void lru_gen_reparent_memcg(struct mem_cgroup *memcg, struct mem_cgroup *parent, int nid)
 {
 }
 
@@ -1411,14 +1429,6 @@ struct zonelist {
  */
 extern struct page *mem_map;
 
-#ifdef CONFIG_TRANSPARENT_HUGEPAGE
-struct deferred_split {
-	spinlock_t split_queue_lock;
-	struct list_head split_queue;
-	unsigned long split_queue_len;
-};
-#endif
-
 #ifdef CONFIG_MEMORY_FAILURE
 /*
  * Per NUMA node memory failure handling statistics.
@@ -1543,10 +1553,6 @@ typedef struct pglist_data {
 	 */
 	unsigned long first_deferred_pfn;
 #endif /* CONFIG_DEFERRED_STRUCT_PAGE_INIT */
-
-#ifdef CONFIG_TRANSPARENT_HUGEPAGE
-	struct deferred_split deferred_split_queue;
-#endif
 
 #ifdef CONFIG_NUMA_BALANCING
 	/* start time in ms of current promote rate limit period */
@@ -2053,21 +2059,16 @@ static inline struct mem_section *__nr_to_section(unsigned long nr)
 extern size_t mem_section_usage_size(void);
 
 /*
- * We use the lower bits of the mem_map pointer to store
- * a little bit of information.  The pointer is calculated
- * as mem_map - section_nr_to_pfn(pnum).  The result is
- * aligned to the minimum alignment of the two values:
- *   1. All mem_map arrays are page-aligned.
- *   2. section_nr_to_pfn() always clears PFN_SECTION_SHIFT
- *      lowest bits.  PFN_SECTION_SHIFT is arch-specific
- *      (equal SECTION_SIZE_BITS - PAGE_SHIFT), and the
- *      worst combination is powerpc with 256k pages,
- *      which results in PFN_SECTION_SHIFT equal 6.
- * To sum it up, at least 6 bits are available on all architectures.
- * However, we can exceed 6 bits on some other architectures except
- * powerpc (e.g. 15 bits are available on x86_64, 13 bits are available
- * with the worst case of 64K pages on arm64) if we make sure the
- * exceeded bit is not applicable to powerpc.
+ * We use the lower bits of the mem_map pointer to store a little bit of
+ * information. The pointer is calculated as mem_map - section_nr_to_pfn().
+ * The result is aligned to the minimum alignment of the two values:
+ *
+ * 1. All mem_map arrays are page-aligned.
+ * 2. section_nr_to_pfn() always clears PFN_SECTION_SHIFT lowest bits.
+ *
+ * We always expect a single section to cover full pages. Therefore,
+ * we can safely assume that PFN_SECTION_SHIFT is large enough to
+ * accommodate SECTION_MAP_LAST_BIT. We use BUILD_BUG_ON() to ensure this.
  */
 enum {
 	SECTION_MARKED_PRESENT_BIT,

@@ -42,6 +42,7 @@
 #include <linux/security.h>
 #include <linux/notifier.h>
 #include <linux/hashtable.h>
+#include <linux/cc_platform.h>
 #include <rdma/rdma_netlink.h>
 #include <rdma/ib_addr.h>
 #include <rdma/ib_cache.h>
@@ -1245,7 +1246,6 @@ out:
  */
 static int setup_device(struct ib_device *device)
 {
-	struct ib_udata uhw = {.outlen = 0, .inlen = 0};
 	int ret;
 
 	ib_device_check_mandatory(device);
@@ -1257,7 +1257,7 @@ static int setup_device(struct ib_device *device)
 	}
 
 	memset(&device->attrs, 0, sizeof(device->attrs));
-	ret = device->ops.query_device(device, &device->attrs, &uhw);
+	ret = device->ops.query_device(device, &device->attrs, NULL);
 	if (ret) {
 		dev_warn(&device->dev,
 			 "Couldn't query the device attributes\n");
@@ -1419,6 +1419,14 @@ int ib_register_device(struct ib_device *device, const char *name,
 	 */
 	WARN_ON(dma_device && !dma_device->dma_parms);
 	device->dma_device = dma_device;
+	/*
+	 * In a CoCo guest every device is currently assumed to be untrusted
+	 * (T=0) and therefore subject to DMA bouncing. Once trusted (T=1)
+	 * device detection is wired up, narrow this check to exclude such
+	 * devices.
+	 */
+	if (dma_device && cc_platform_has(CC_ATTR_GUEST_MEM_ENCRYPT))
+		device->cc_dma_bounce = 1;
 
 	ret = setup_device(device);
 	if (ret)
@@ -2707,6 +2715,7 @@ void ib_set_device_ops(struct ib_device *dev, const struct ib_device_ops *ops)
 
 	dev_ops->uverbs_no_driver_id_binding |=
 		ops->uverbs_no_driver_id_binding;
+	dev_ops->uverbs_robust_udata |= ops->uverbs_robust_udata;
 
 	SET_DEVICE_OP(dev_ops, add_gid);
 	SET_DEVICE_OP(dev_ops, add_sub_dev);
@@ -2733,7 +2742,7 @@ void ib_set_device_ops(struct ib_device *dev, const struct ib_device_ops *ops)
 	SET_DEVICE_OP(dev_ops, create_ah);
 	SET_DEVICE_OP(dev_ops, create_counters);
 	SET_DEVICE_OP(dev_ops, create_cq);
-	SET_DEVICE_OP(dev_ops, create_cq_umem);
+	SET_DEVICE_OP(dev_ops, create_user_cq);
 	SET_DEVICE_OP(dev_ops, create_flow);
 	SET_DEVICE_OP(dev_ops, create_qp);
 	SET_DEVICE_OP(dev_ops, create_rwq_ind_table);
@@ -2782,7 +2791,6 @@ void ib_set_device_ops(struct ib_device *dev, const struct ib_device_ops *ops)
 	SET_DEVICE_OP(dev_ops, get_netdev);
 	SET_DEVICE_OP(dev_ops, get_numa_node);
 	SET_DEVICE_OP(dev_ops, get_port_immutable);
-	SET_DEVICE_OP(dev_ops, get_vector_affinity);
 	SET_DEVICE_OP(dev_ops, get_vf_config);
 	SET_DEVICE_OP(dev_ops, get_vf_guid);
 	SET_DEVICE_OP(dev_ops, get_vf_stats);
@@ -2833,7 +2841,7 @@ void ib_set_device_ops(struct ib_device *dev, const struct ib_device_ops *ops)
 	SET_DEVICE_OP(dev_ops, reg_user_mr_dmabuf);
 	SET_DEVICE_OP(dev_ops, req_notify_cq);
 	SET_DEVICE_OP(dev_ops, rereg_user_mr);
-	SET_DEVICE_OP(dev_ops, resize_cq);
+	SET_DEVICE_OP(dev_ops, resize_user_cq);
 	SET_DEVICE_OP(dev_ops, set_vf_guid);
 	SET_DEVICE_OP(dev_ops, set_vf_link_state);
 	SET_DEVICE_OP(dev_ops, ufile_hw_cleanup);

@@ -100,29 +100,30 @@ static const struct bulk_reg_val tas2781_cali_start_reg[] = {
 };
 
 static const struct i2c_device_id tasdevice_id[] = {
-	{ "tas2020", TAS2020 },
-	{ "tas2118", TAS2118 },
-	{ "tas2120", TAS2120 },
-	{ "tas2320", TAS2320 },
-	{ "tas2563", TAS2563 },
-	{ "tas2568", TAS2568 },
-	{ "tas2570", TAS2570 },
-	{ "tas2572", TAS2572 },
-	{ "tas2574", TAS2574 },
-	{ "tas2781", TAS2781 },
-	{ "tas5802", TAS5802 },
-	{ "tas5806m", TAS5806M },
-	{ "tas5806md", TAS5806MD },
-	{ "tas5815", TAS5815 },
-	{ "tas5822", TAS5822 },
-	{ "tas5825", TAS5825 },
-	{ "tas5827", TAS5827 },
-	{ "tas5828", TAS5828 },
-	{ "tas5830", TAS5830 },
-	{}
+	{ .name = "tas2020", .driver_data = TAS2020 },
+	{ .name = "tas2118", .driver_data = TAS2118 },
+	{ .name = "tas2120", .driver_data = TAS2120 },
+	{ .name = "tas2320", .driver_data = TAS2320 },
+	{ .name = "tas2563", .driver_data = TAS2563 },
+	{ .name = "tas2568", .driver_data = TAS2568 },
+	{ .name = "tas2570", .driver_data = TAS2570 },
+	{ .name = "tas2572", .driver_data = TAS2572 },
+	{ .name = "tas2573", .driver_data = TAS2573 },
+	{ .name = "tas2574", .driver_data = TAS2574 },
+	{ .name = "tas2781", .driver_data = TAS2781 },
+	{ .name = "tas5802", .driver_data = TAS5802 },
+	{ .name = "tas5806m", .driver_data = TAS5806M },
+	{ .name = "tas5806md", .driver_data = TAS5806MD },
+	{ .name = "tas5815", .driver_data = TAS5815 },
+	{ .name = "tas5822", .driver_data = TAS5822 },
+	{ .name = "tas5825", .driver_data = TAS5825 },
+	{ .name = "tas5827", .driver_data = TAS5827 },
+	{ .name = "tas5828", .driver_data = TAS5828 },
+	{ .name = "tas5830", .driver_data = TAS5830 },
+	{ .name = "tas5832", .driver_data = TAS5832 },
+	{ }
 };
 
-#ifdef CONFIG_OF
 static const struct of_device_id tasdevice_of_match[] = {
 	{ .compatible = "ti,tas2020", .data = &tasdevice_id[TAS2020] },
 	{ .compatible = "ti,tas2118", .data = &tasdevice_id[TAS2118] },
@@ -132,6 +133,7 @@ static const struct of_device_id tasdevice_of_match[] = {
 	{ .compatible = "ti,tas2568", .data = &tasdevice_id[TAS2568] },
 	{ .compatible = "ti,tas2570", .data = &tasdevice_id[TAS2570] },
 	{ .compatible = "ti,tas2572", .data = &tasdevice_id[TAS2572] },
+	{ .compatible = "ti,tas2573", .data = &tasdevice_id[TAS2573] },
 	{ .compatible = "ti,tas2574", .data = &tasdevice_id[TAS2574] },
 	{ .compatible = "ti,tas2781", .data = &tasdevice_id[TAS2781] },
 	{ .compatible = "ti,tas5802", .data = &tasdevice_id[TAS5802] },
@@ -143,10 +145,10 @@ static const struct of_device_id tasdevice_of_match[] = {
 	{ .compatible = "ti,tas5827", .data = &tasdevice_id[TAS5827] },
 	{ .compatible = "ti,tas5828", .data = &tasdevice_id[TAS5828] },
 	{ .compatible = "ti,tas5830", .data = &tasdevice_id[TAS5830] },
+	{ .compatible = "ti,tas5832", .data = &tasdevice_id[TAS5832] },
 	{},
 };
 MODULE_DEVICE_TABLE(of, tasdevice_of_match);
-#endif
 
 /**
  * tas2781_digital_getvol - get the volum control
@@ -1683,7 +1685,7 @@ static void tasdevice_fw_ready(const struct firmware *fmw,
 	tas_priv->fw_state = TASDEVICE_DSP_FW_ALL_OK;
 
 	/* There is no calibration required for TAS58XX. */
-	if (tas_priv->chip_id < TAS5802) {
+	if (tas_priv->chip_id == TAS2563 || tas_priv->chip_id == TAS2781) {
 		ret = tasdevice_create_cali_ctrls(tas_priv);
 		if (ret) {
 			dev_err(tas_priv->dev, "cali controls error\n");
@@ -1736,6 +1738,7 @@ out:
 	if (tas_priv->fw_state == TASDEVICE_RCA_FW_OK) {
 		switch (tas_priv->chip_id) {
 		case TAS2563:
+		case TAS2573:
 		case TAS2781:
 		case TAS5802:
 		case TAS5806M:
@@ -1746,6 +1749,7 @@ out:
 		case TAS5827:
 		case TAS5828:
 		case TAS5830:
+		case TAS5832:
 			/* If DSP FW fail, DSP kcontrol won't be created. */
 			tasdevice_dsp_remove(tas_priv);
 		}
@@ -1899,6 +1903,7 @@ static int tasdevice_codec_probe(struct snd_soc_component *codec)
 	case TAS2568:
 	case TAS2570:
 	case TAS2572:
+	case TAS2573:
 	case TAS2574:
 		p = (struct snd_kcontrol_new *)tas2x20_snd_controls;
 		size = ARRAY_SIZE(tas2x20_snd_controls);
@@ -1917,6 +1922,7 @@ static int tasdevice_codec_probe(struct snd_soc_component *codec)
 	case TAS5827:
 	case TAS5828:
 	case TAS5830:
+	case TAS5832:
 		p = (struct snd_kcontrol_new *)tas5825_snd_controls;
 		size = ARRAY_SIZE(tas5825_snd_controls);
 		break;
@@ -2083,7 +2089,6 @@ static void tasdevice_i2c_remove(struct i2c_client *client)
 	tasdevice_remove(tas_priv);
 }
 
-#ifdef CONFIG_ACPI
 static const struct acpi_device_id tasdevice_acpi_match[] = {
 	{ "TXNW2020", (kernel_ulong_t)&tasdevice_id[TAS2020] },
 	{ "TXNW2118", (kernel_ulong_t)&tasdevice_id[TAS2118] },
@@ -2093,6 +2098,7 @@ static const struct acpi_device_id tasdevice_acpi_match[] = {
 	{ "TXNW2568", (kernel_ulong_t)&tasdevice_id[TAS2568] },
 	{ "TXNW2570", (kernel_ulong_t)&tasdevice_id[TAS2570] },
 	{ "TXNW2572", (kernel_ulong_t)&tasdevice_id[TAS2572] },
+	{ "TXNW2573", (kernel_ulong_t)&tasdevice_id[TAS2573] },
 	{ "TXNW2574", (kernel_ulong_t)&tasdevice_id[TAS2574] },
 	{ "TXNW2781", (kernel_ulong_t)&tasdevice_id[TAS2781] },
 	{ "TXNW5802", (kernel_ulong_t)&tasdevice_id[TAS5802] },
@@ -2104,19 +2110,17 @@ static const struct acpi_device_id tasdevice_acpi_match[] = {
 	{ "TXNW5827", (kernel_ulong_t)&tasdevice_id[TAS5827] },
 	{ "TXNW5828", (kernel_ulong_t)&tasdevice_id[TAS5828] },
 	{ "TXNW5830", (kernel_ulong_t)&tasdevice_id[TAS5830] },
+	{ "TXNW5832", (kernel_ulong_t)&tasdevice_id[TAS5832] },
 	{},
 };
 
 MODULE_DEVICE_TABLE(acpi, tasdevice_acpi_match);
-#endif
 
 static struct i2c_driver tasdevice_i2c_driver = {
 	.driver = {
 		.name = "tasdev-codec",
-		.of_match_table = of_match_ptr(tasdevice_of_match),
-#ifdef CONFIG_ACPI
-		.acpi_match_table = ACPI_PTR(tasdevice_acpi_match),
-#endif
+		.of_match_table = tasdevice_of_match,
+		.acpi_match_table = tasdevice_acpi_match,
 	},
 	.probe	= tasdevice_i2c_probe,
 	.remove = tasdevice_i2c_remove,

@@ -60,6 +60,8 @@ unsigned long __stack_chk_guard __read_mostly;
 EXPORT_SYMBOL(__stack_chk_guard);
 #endif
 
+DEFINE_PER_CPU(struct task_struct *, cpu_tasks);
+
 /*
  * Idle related variables and functions
  */
@@ -135,6 +137,8 @@ int arch_dup_task_struct(struct task_struct *dst, struct task_struct *src)
 		memcpy(dst, src, sizeof(struct task_struct));
 		return 0;
 	}
+
+	dst->thread.fpu.fcsr =  src->thread.fpu.fcsr;
 
 	if (!used_math())
 		memcpy(dst, src, offsetof(struct task_struct, thread.fpu.fpr));

@@ -122,7 +122,9 @@ static inline int kvm_is_ucontrol(struct kvm *kvm)
 #endif
 }
 
-#define GUEST_PREFIX_SHIFT 13
+#define GUEST_PREFIX_SHIFT 12
+#define GUEST_PREFIX_MASK_ZARCH 0x7fffe
+#define GUEST_PREFIX_MASK_ESA   0x7ffff
 static inline u32 kvm_s390_get_prefix(struct kvm_vcpu *vcpu)
 {
 	return vcpu->arch.sie_block->prefix << GUEST_PREFIX_SHIFT;
@@ -133,6 +135,7 @@ static inline void kvm_s390_set_prefix(struct kvm_vcpu *vcpu, u32 prefix)
 	VCPU_EVENT(vcpu, 3, "set prefix of cpu %03u to 0x%x", vcpu->vcpu_id,
 		   prefix);
 	vcpu->arch.sie_block->prefix = prefix >> GUEST_PREFIX_SHIFT;
+	vcpu->arch.sie_block->prefix &= GUEST_PREFIX_MASK_ZARCH;
 	kvm_make_request(KVM_REQ_TLB_FLUSH, vcpu);
 	kvm_make_request(KVM_REQ_REFRESH_GUEST_PREFIX, vcpu);
 }
@@ -373,7 +376,8 @@ int __must_check kvm_s390_deliver_pending_interrupts(struct kvm_vcpu *vcpu);
 void kvm_s390_clear_local_irqs(struct kvm_vcpu *vcpu);
 void kvm_s390_clear_float_irqs(struct kvm *kvm);
 int __must_check kvm_s390_inject_vm(struct kvm *kvm,
-				    struct kvm_s390_interrupt *s390int);
+				    struct kvm_s390_interrupt *s390int,
+				    struct kvm_s390_interrupt_info *inti);
 int __must_check kvm_s390_inject_vcpu(struct kvm_vcpu *vcpu,
 				      struct kvm_s390_irq *irq);
 static inline int kvm_s390_inject_prog_irq(struct kvm_vcpu *vcpu,
@@ -557,6 +561,8 @@ void kvm_s390_gisa_disable(struct kvm *kvm);
 void kvm_s390_gisa_enable(struct kvm *kvm);
 int __init kvm_s390_gib_init(u8 nisc);
 void kvm_s390_gib_destroy(void);
+void kvm_s390_unmap_all_adapters(struct kvm *kvm);
+
 
 /* implemented in guestdbg.c */
 void kvm_s390_backup_guest_per_regs(struct kvm_vcpu *vcpu);

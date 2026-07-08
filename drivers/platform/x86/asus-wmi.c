@@ -70,6 +70,7 @@ module_param(fnlock_default, bool, 0444);
 #define NOTIFY_KBD_TTP			0xae
 #define NOTIFY_LID_FLIP			0xfa
 #define NOTIFY_LID_FLIP_ROG		0xbd
+#define NOTIFY_KEYSTONE			0xb4
 
 #define ASUS_WMI_FNLOCK_BIOS_DISABLED	BIT(0)
 
@@ -125,7 +126,6 @@ module_param(fnlock_default, bool, 0444);
 #define NVIDIA_TEMP_MIN		75
 #define NVIDIA_TEMP_MAX		87
 
-#define ASUS_SCREENPAD_BRIGHT_MIN 20
 #define ASUS_SCREENPAD_BRIGHT_MAX 255
 #define ASUS_SCREENPAD_BRIGHT_DEFAULT 60
 
@@ -279,6 +279,8 @@ struct asus_wmi {
 	int tablet_switch_event_code;
 	u32 tablet_switch_dev_id;
 	bool tablet_switch_inverted;
+
+	bool keystone_available;
 
 	enum fan_type fan_type;
 	enum fan_type gpu_fan_type;
@@ -645,6 +647,55 @@ static bool asus_wmi_dev_is_present(struct asus_wmi *asus, u32 dev_id)
 	pr_debug("%s called (0x%08x), retval: 0x%08x\n", __func__, dev_id, retval);
 
 	return status == 0 && (retval & ASUS_WMI_DSTS_PRESENCE_BIT);
+}
+
+/* Keystone *******************************************************************/
+
+static int keystone_check_present(struct asus_wmi *asus)
+{
+	u32 retval;
+	int err;
+
+	asus->keystone_available = false;
+
+	/*
+	 * Use a raw devstate call rather than asus_wmi_dev_is_present().
+	 * For this devid, PRESENCE_BIT encodes current insert state, not
+	 * feature presence, so asus_wmi_dev_is_present() would return false
+	 * whenever the dongle is absent at boot, even on machines that have
+	 * a keystone slot.
+	 * -ENODEV means the firmware doesn't know this devid at all.
+	 * retval is not examined here, only the return code matters.
+	 */
+	err = asus_wmi_get_devstate(asus, ASUS_WMI_DEVID_KEYSTONE, &retval);
+	if (err == -ENODEV)
+		return 0;
+	if (err)
+		return err;
+
+	asus->keystone_available = true;
+	return 0;
+}
+
+static ssize_t keystone_show(struct device *dev,
+			     struct device_attribute *attr, char *buf)
+{
+	struct asus_wmi *asus = dev_get_drvdata(dev);
+	u32 retval;
+	int err;
+
+	err = asus_wmi_get_devstate(asus, ASUS_WMI_DEVID_KEYSTONE, &retval);
+	if (err)
+		return err;
+
+	return sysfs_emit(buf, "%d\n", !!(retval & ASUS_WMI_DSTS_PRESENCE_BIT));
+}
+
+static DEVICE_ATTR_RO(keystone);
+
+static void asus_wmi_keystone_notify(struct asus_wmi *asus)
+{
+	sysfs_notify(&asus->platform_device->dev.kobj, NULL, "keystone");
 }
 
 /* Input **********************************************************************/
@@ -1557,7 +1608,10 @@ static ssize_t charge_control_end_threshold_show(struct device *device,
 						 struct device_attribute *attr,
 						 char *buf)
 {
-	return sysfs_emit(buf, "%d\n", charge_end_threshold);
+	if ((charge_end_threshold >= 0) && (charge_end_threshold <= 100))
+		return sysfs_emit(buf, "%d\n", charge_end_threshold);
+
+	return -ENODATA;
 }
 
 static DEVICE_ATTR_RW(charge_control_end_threshold);
@@ -1580,11 +1634,11 @@ static int asus_wmi_battery_add(struct power_supply *battery, struct acpi_batter
 		return -ENODEV;
 
 	/* The charge threshold is only reset when the system is power cycled,
-	 * and we can't get the current threshold so let set it to 100% when
-	 * a battery is added.
+	 * and we can't read the current threshold, however the majority of
+	 * platforms retains it, therefore signal the threshold as unknown
+	 * until user explicitly sets it to a new value.
 	 */
-	asus_wmi_set_devstate(ASUS_WMI_DEVID_RSOC, 100, NULL);
-	charge_end_threshold = 100;
+	charge_end_threshold = -1;
 
 	return 0;
 }
@@ -4408,43 +4462,35 @@ static int read_screenpad_brightness(struct backlight_device *bd)
 		return err;
 	/* The device brightness can only be read if powered, so return stored */
 	if (err == BACKLIGHT_POWER_OFF)
-		return asus->driver->screenpad_brightness - ASUS_SCREENPAD_BRIGHT_MIN;
+		return bd->props.brightness;
 
 	err = asus_wmi_get_devstate(asus, ASUS_WMI_DEVID_SCREENPAD_LIGHT, &retval);
 	if (err < 0)
 		return err;
 
-	return (retval & ASUS_WMI_DSTS_BRIGHTNESS_MASK) - ASUS_SCREENPAD_BRIGHT_MIN;
+	return retval & ASUS_WMI_DSTS_BRIGHTNESS_MASK;
 }
 
 static int update_screenpad_bl_status(struct backlight_device *bd)
 {
-	struct asus_wmi *asus = bl_get_data(bd);
-	int power, err = 0;
-	u32 ctrl_param;
+	u32 ctrl_param = bd->props.brightness;
+	int err = 0;
 
-	power = read_screenpad_backlight_power(asus);
-	if (power < 0)
-		return power;
+	if (bd->props.power) {
+		err = asus_wmi_set_devstate(ASUS_WMI_DEVID_SCREENPAD_POWER, 1, NULL);
+		if (err < 0)
+			return err;
 
-	if (bd->props.power != power) {
-		if (power != BACKLIGHT_POWER_ON) {
-			/* Only brightness > 0 can power it back on */
-			ctrl_param = asus->driver->screenpad_brightness - ASUS_SCREENPAD_BRIGHT_MIN;
-			err = asus_wmi_set_devstate(ASUS_WMI_DEVID_SCREENPAD_LIGHT,
-						    ctrl_param, NULL);
-		} else {
-			err = asus_wmi_set_devstate(ASUS_WMI_DEVID_SCREENPAD_POWER, 0, NULL);
-		}
-	} else if (power == BACKLIGHT_POWER_ON) {
-		/* Only set brightness if powered on or we get invalid/unsync state */
-		ctrl_param = bd->props.brightness + ASUS_SCREENPAD_BRIGHT_MIN;
 		err = asus_wmi_set_devstate(ASUS_WMI_DEVID_SCREENPAD_LIGHT, ctrl_param, NULL);
+		if (err < 0)
+			return err;
 	}
 
-	/* Ensure brightness is stored to turn back on with */
-	if (err == 0)
-		asus->driver->screenpad_brightness = bd->props.brightness + ASUS_SCREENPAD_BRIGHT_MIN;
+	if (!bd->props.power) {
+		err = asus_wmi_set_devstate(ASUS_WMI_DEVID_SCREENPAD_POWER, 0, NULL);
+		if (err < 0)
+			return err;
+	}
 
 	return err;
 }
@@ -4462,22 +4508,19 @@ static int asus_screenpad_init(struct asus_wmi *asus)
 	int err, power;
 	int brightness = 0;
 
-	power = read_screenpad_backlight_power(asus);
+	power = asus_wmi_get_devstate_simple(asus, ASUS_WMI_DEVID_SCREENPAD_POWER);
 	if (power < 0)
 		return power;
 
-	if (power != BACKLIGHT_POWER_OFF) {
+	if (power) {
 		err = asus_wmi_get_devstate(asus, ASUS_WMI_DEVID_SCREENPAD_LIGHT, &brightness);
 		if (err < 0)
 			return err;
 	}
-	/* default to an acceptable min brightness on boot if too low */
-	if (brightness < ASUS_SCREENPAD_BRIGHT_MIN)
-		brightness = ASUS_SCREENPAD_BRIGHT_DEFAULT;
 
 	memset(&props, 0, sizeof(struct backlight_properties));
 	props.type = BACKLIGHT_RAW; /* ensure this bd is last to be picked */
-	props.max_brightness = ASUS_SCREENPAD_BRIGHT_MAX - ASUS_SCREENPAD_BRIGHT_MIN;
+	props.max_brightness = ASUS_SCREENPAD_BRIGHT_MAX;
 	bd = backlight_device_register("asus_screenpad",
 				       &asus->platform_device->dev, asus,
 				       &asus_screenpad_bl_ops, &props);
@@ -4488,7 +4531,7 @@ static int asus_screenpad_init(struct asus_wmi *asus)
 
 	asus->screenpad_backlight_device = bd;
 	asus->driver->screenpad_brightness = brightness;
-	bd->props.brightness = brightness - ASUS_SCREENPAD_BRIGHT_MIN;
+	bd->props.brightness = brightness;
 	bd->props.power = power;
 	backlight_update_status(bd);
 
@@ -4581,6 +4624,12 @@ static void asus_wmi_handle_event_code(int code, struct asus_wmi *asus)
 
 	if (code == asus->tablet_switch_event_code) {
 		asus_wmi_tablet_mode_get_state(asus);
+		return;
+	}
+
+	if (code == NOTIFY_KEYSTONE) {
+		if (asus->keystone_available)
+			asus_wmi_keystone_notify(asus);
 		return;
 	}
 
@@ -4707,6 +4756,7 @@ static struct attribute *platform_attributes[] = {
 	&dev_attr_lid_resume.attr,
 	&dev_attr_als_enable.attr,
 	&dev_attr_fan_boost_mode.attr,
+	&dev_attr_keystone.attr,
 #if IS_ENABLED(CONFIG_ASUS_WMI_DEPRECATED_ATTRS)
 		&dev_attr_charge_mode.attr,
 		&dev_attr_egpu_enable.attr,
@@ -4750,6 +4800,8 @@ static umode_t asus_sysfs_is_visible(struct kobject *kobj,
 		devid = ASUS_WMI_DEVID_ALS_ENABLE;
 	else if (attr == &dev_attr_fan_boost_mode.attr)
 		ok = asus->fan_boost_mode_available;
+	else if (attr == &dev_attr_keystone.attr)
+		ok = asus->keystone_available;
 
 #if IS_ENABLED(CONFIG_ASUS_WMI_DEPRECATED_ATTRS)
 	if (attr == &dev_attr_charge_mode.attr)
@@ -5090,6 +5142,10 @@ static int asus_wmi_add(struct platform_device *pdev)
 	if (err)
 		goto fail_platform_profile_setup;
 
+	err = keystone_check_present(asus);
+	if (err)
+		dev_warn(&pdev->dev, "Failed to check Keystone presence: %d\n", err);
+
 	err = asus_wmi_sysfs_init(asus->platform_device);
 	if (err)
 		goto fail_sysfs;
@@ -5413,17 +5469,3 @@ void asus_wmi_unregister_driver(struct asus_wmi_driver *driver)
 	used = false;
 }
 EXPORT_SYMBOL_GPL(asus_wmi_unregister_driver);
-
-static int __init asus_wmi_init(void)
-{
-	pr_info("ASUS WMI generic driver loaded\n");
-	return 0;
-}
-
-static void __exit asus_wmi_exit(void)
-{
-	pr_info("ASUS WMI generic driver unloaded\n");
-}
-
-module_init(asus_wmi_init);
-module_exit(asus_wmi_exit);

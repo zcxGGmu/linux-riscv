@@ -118,7 +118,6 @@ struct rt_firmware_hdr {
 #define WMM_NORMAL_PAGE_NUM_LPQ_8723B 0x20
 #define WMM_NORMAL_PAGE_NUM_NPQ_8723B 0x20
 
-#include "HalVerDef.h"
 #include "hal_com.h"
 
 #define EFUSE_OOB_PROTECT_BYTES 15
@@ -171,7 +170,7 @@ struct c2h_evt_hdr_t {
 	u8 CmdID;
 	u8 CmdLen;
 	u8 CmdSeq;
-} __attribute__((__packed__));
+} __packed;
 
 enum { /* tag_Package_Definition */
 	PACKAGE_DEFAULT,
@@ -236,8 +235,6 @@ int FirmwareDownloadBT(struct adapter *adapter, struct rt_firmware *firmware);
 void CCX_FwC2HTxRpt_8723b(struct adapter *padapter, u8 *pdata, u8 len);
 s32 c2h_id_filter_ccx_8723b(u8 *buf);
 s32 c2h_handler_8723b(struct adapter *padapter, u8 *pC2hEvent);
-u8 MRateToHwRate8723B(u8 rate);
-u8 HwRateToMRate8723B(u8 rate);
 
 void Hal_ReadRFGainOffset(struct adapter *padapter, u8 *hwinfo,
 			  bool AutoLoadFail);

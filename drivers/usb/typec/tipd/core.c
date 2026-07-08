@@ -820,8 +820,10 @@ static void cd321x_update_work(struct work_struct *work)
 			desc.identity = &st.partner_identity;
 
 		tps->partner = typec_register_partner(tps->port, &desc);
-		if (IS_ERR(tps->partner))
-			dev_warn(tps->dev, "%s: failed to register partnet\n", __func__);
+		if (IS_ERR(tps->partner)) {
+			dev_warn(tps->dev, "%s: failed to register partner\n", __func__);
+			return;
+		}
 
 		if (desc.identity) {
 			typec_partner_set_identity(tps->partner);
@@ -1833,6 +1835,7 @@ static int tps6598x_probe(struct i2c_client *client)
 		goto err_role_put;
 
 	if (status & TPS_STATUS_PLUG_PRESENT) {
+		ret = -EINVAL;
 		if (!tps6598x_read_power_status(tps))
 			goto err_unregister_port;
 		if (!tps->data->read_data_status(tps))
@@ -2025,7 +2028,7 @@ static const struct of_device_id tps6598x_of_match[] = {
 MODULE_DEVICE_TABLE(of, tps6598x_of_match);
 
 static const struct i2c_device_id tps6598x_id[] = {
-	{ "tps6598x", (kernel_ulong_t)&tps6598x_data },
+	{ .name = "tps6598x", .driver_data = (kernel_ulong_t)&tps6598x_data },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, tps6598x_id);

@@ -14,7 +14,6 @@
 #include <linux/interrupt.h>
 #include <linux/io.h>
 #include <linux/module.h>
-#include <linux/mod_devicetable.h>
 #include <linux/pm_runtime.h>
 #include <linux/soundwire/sdw_registers.h>
 #include <linux/soundwire/sdw.h>
@@ -932,6 +931,14 @@ irqreturn_t sdw_cdns_irq(int irq, void *dev_id)
 		struct sdw_defer *defer = &bus->defer_msg;
 
 		cdns_read_response(cdns);
+
+		/*
+		 * Clear interrupt before signalling the completion to avoid
+		 * a race between this thread and the main thread starting
+		 * another TX.
+		 */
+		cdns_writel(cdns, CDNS_MCP_INTSTAT, CDNS_MCP_INT_RX_WL);
+		int_status &= ~CDNS_MCP_INT_RX_WL;
 
 		if (defer && defer->msg) {
 			cdns_fill_msg_resp(cdns, defer->msg,

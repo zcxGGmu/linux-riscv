@@ -101,7 +101,7 @@ enum ltr390_meas_rate {
 struct ltr390_data {
 	struct regmap *regmap;
 	struct i2c_client *client;
-	/* Protects device from simulataneous reads */
+	/* Protects device from simultaneous reads */
 	struct mutex lock;
 	enum ltr390_mode mode;
 	int gain;
@@ -889,7 +889,7 @@ static const struct dev_pm_ops ltr390_pm_ops = {
 };
 
 static const struct i2c_device_id ltr390_id[] = {
-	{ "ltr390" },
+	{ .name = "ltr390" },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, ltr390_id);

@@ -14,6 +14,9 @@
 #include <linux/fsnotify_backend.h>
 #include "fsnotify.h"
 
+#define CREATE_TRACE_POINTS
+#include <trace/events/fsnotify.h>
+
 /*
  * Clear all of the marks on an inode when it is being evicted from core
  */
@@ -76,7 +79,7 @@ void fsnotify_set_children_dentry_flags(struct inode *inode)
 	spin_lock(&inode->i_lock);
 	/* run all of the dentries associated with this inode.  Since this is a
 	 * directory, there damn well better only be one item on this list */
-	hlist_for_each_entry(alias, &inode->i_dentry, d_u.d_alias) {
+	for_each_alias(alias, inode) {
 		struct dentry *child;
 
 		/* run all of the children of the original inode and fix their
@@ -388,7 +391,7 @@ static struct fsnotify_mark *fsnotify_first_mark(struct fsnotify_mark_connector 
 	return hlist_entry_safe(node, struct fsnotify_mark, obj_list);
 }
 
-static struct fsnotify_mark *fsnotify_next_mark(struct fsnotify_mark *mark)
+struct fsnotify_mark *fsnotify_next_mark(struct fsnotify_mark *mark)
 {
 	struct hlist_node *node = NULL;
 
@@ -503,6 +506,8 @@ int fsnotify(__u32 mask, const void *data, int data_type, struct inode *dir,
 	int inode2_type;
 	int ret = 0;
 	__u32 test_mask, marks_mask = 0;
+
+	trace_fsnotify(mask, data, data_type, dir, file_name, inode, cookie);
 
 	if (path)
 		mnt = real_mount(path->mnt);

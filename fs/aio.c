@@ -318,7 +318,6 @@ static int aio_init_fs_context(struct fs_context *fc)
 	pfc = init_pseudo(fc, AIO_RING_MAGIC);
 	if (!pfc)
 		return -ENOMEM;
-	fc->s_iflags |= SB_I_NOEXEC;
 	pfc->ops = &aio_super_operations;
 	return 0;
 }
@@ -422,7 +421,8 @@ static int aio_ring_mremap(struct vm_area_struct *vma)
 
 		ctx = rcu_dereference(table->table[i]);
 		if (ctx && ctx->aio_ring_file == file) {
-			if (!atomic_read(&ctx->dead)) {
+			if (!atomic_read(&ctx->dead) &&
+			    (ctx->mmap_size == (vma->vm_end - vma->vm_start))) {
 				ctx->user_id = ctx->mmap_base = vma->vm_start;
 				res = 0;
 			}
@@ -447,7 +447,7 @@ static const struct vm_operations_struct aio_ring_vm_ops = {
 
 static int aio_ring_mmap_prepare(struct vm_area_desc *desc)
 {
-	vma_desc_set_flags(desc, VMA_DONTEXPAND_BIT);
+	vma_desc_set_flags(desc, VMA_DONTEXPAND_BIT, VMA_DONTCOPY_BIT);
 	desc->vm_ops = &aio_ring_vm_ops;
 	return 0;
 }

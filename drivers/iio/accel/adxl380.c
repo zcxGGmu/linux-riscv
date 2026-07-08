@@ -31,7 +31,7 @@
 #define ADXL319_ID_VAL				382
 
 #define ADXL380_DEVID_AD_REG			0x00
-#define ADLX380_PART_ID_REG			0x02
+#define ADXL380_PART_ID_REG			0x02
 
 #define ADXL380_X_DATA_H_REG			0x15
 #define ADXL380_Y_DATA_H_REG			0x17
@@ -1878,7 +1878,7 @@ static int adxl380_setup(struct iio_dev *indio_dev)
 	if (reg_val != ADXL380_DEVID_AD_VAL)
 		dev_warn(st->dev, "Unknown chip id %x\n", reg_val);
 
-	ret = regmap_bulk_read(st->regmap, ADLX380_PART_ID_REG,
+	ret = regmap_bulk_read(st->regmap, ADXL380_PART_ID_REG,
 			       &st->transf_buf, 2);
 	if (ret)
 		return ret;
@@ -1967,7 +1967,9 @@ int adxl380_probe(struct device *dev, struct regmap *regmap,
 	st->chip_info = chip_info;
 	st->odr = ADXL380_ODR_DSM;
 
-	mutex_init(&st->lock);
+	ret = devm_mutex_init(dev, &st->lock);
+	if (ret)
+		return ret;
 
 	indio_dev->channels = adxl380_channels;
 	indio_dev->num_channels = ARRAY_SIZE(adxl380_channels);

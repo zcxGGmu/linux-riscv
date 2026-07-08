@@ -17,6 +17,7 @@ static void setup_unoptimized_display_config_with_meta(const struct dml2_instanc
 
 static void setup_speculative_display_config_with_meta(const struct dml2_instance *dml, struct display_configuation_with_meta *out, const struct dml2_display_cfg *display_config)
 {
+	(void)dml;
 	memcpy(&out->display_config, display_config, sizeof(struct dml2_display_cfg));
 	out->stage1.min_clk_index_for_latency = 0;
 }
@@ -472,6 +473,7 @@ static unsigned int count_elements_in_span(int *array, unsigned int array_size, 
 static bool calculate_h_split_for_scaling_transform(int full_vp_width, int h_active, int num_pipes,
 	enum dml2_scaling_transform scaling_transform, int *pipe_vp_x_start, int *pipe_vp_x_end)
 {
+	(void)h_active;
 	int i, slice_width;
 	const char MAX_SCL_VP_OVERLAP = 3;
 	bool success = false;
@@ -780,6 +782,7 @@ static bool dml2_top_soc15_check_mode_supported(struct dml2_check_mode_supported
 
 	bool result = false;
 	bool mcache_success = false;
+	bool uclk_pstate_success = false;
 	memset(dpmm_programming, 0, sizeof(struct dml2_display_cfg_programming));
 
 	setup_unoptimized_display_config_with_meta(dml, &l->base_display_config_with_meta, in_out->display_config);
@@ -803,6 +806,24 @@ static bool dml2_top_soc15_check_mode_supported(struct dml2_check_mode_supported
 		mcache_success = dml2_top_optimization_perform_optimization_phase(&l->optimization_phase_locals, &mcache_phase);
 	}
 
+	if (result) {
+		if (dml->pmo_options.force_mandatory_uclk_pstate_support) {
+			struct optimization_phase_params uclk_phase =	{
+			.dml = dml,
+			.display_config = &l->base_display_config_with_meta,
+			.init_function = dml2_top_optimization_init_function_uclk_pstate,
+			.test_function = dml2_top_optimization_test_function_uclk_pstate,
+			.optimize_function = dml2_top_optimization_optimize_function_uclk_pstate,
+			.optimized_display_config = &l->optimized_display_config_with_meta,
+			.all_or_nothing = false,
+			};
+
+			uclk_pstate_success = dml2_top_optimization_perform_optimization_phase(&l->optimization_phase_locals, &uclk_phase);
+		} else {
+			uclk_pstate_success = true;
+		}
+	}
+
 	/*
 	* Call DPMM to map all requirements to minimum clock state
 	*/
@@ -815,7 +836,7 @@ static bool dml2_top_soc15_check_mode_supported(struct dml2_check_mode_supported
 		result = dml->dpmm_instance.map_mode_to_soc_dpm(&l->dppm_map_mode_params);
 	}
 
-	in_out->is_supported = mcache_success;
+	in_out->is_supported = mcache_success & uclk_pstate_success;
 	result = result && in_out->is_supported;
 
 	return result;
@@ -926,6 +947,15 @@ static bool dml2_top_soc15_build_mode_programming(struct dml2_build_mode_program
 	if (uclk_pstate_success) {
 		memcpy(&l->base_display_config_with_meta, &l->optimized_display_config_with_meta, sizeof(struct display_configuation_with_meta));
 		l->base_display_config_with_meta.stage3.success = true;
+	} else if (dml->pmo_options.force_mandatory_uclk_pstate_support) {
+		l->informative_params.instance = &dml->core_instance;
+		l->informative_params.programming = in_out->programming;
+		l->informative_params.mode_is_supported = false;
+
+		dml->core_instance.populate_informative(&l->informative_params);
+
+		in_out->programming->informative.failed_mcache_validation = true;
+		return false;
 	}
 
 	/*

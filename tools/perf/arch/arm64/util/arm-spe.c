@@ -144,7 +144,8 @@ static int arm_spe_info_fill(struct auxtrace_record *itr,
 			     struct perf_record_auxtrace_info *auxtrace_info,
 			     size_t priv_size)
 {
-	int i, ret;
+	unsigned int i;
+	int ret;
 	size_t offset;
 	struct arm_spe_recording *sper =
 			container_of(itr, struct arm_spe_recording, itr);
@@ -427,7 +428,8 @@ static int arm_spe_recording_options(struct auxtrace_record *itr,
 	evlist__for_each_entry_safe(evlist, tmp, evsel) {
 		if (evsel__is_aux_event(evsel)) {
 			arm_spe_setup_evsel(evsel, cpus);
-			if (!evsel__get_config_val(evsel, "discard", &discard_bit))
+			if (evsel__config_exists(evsel, "discard") &&
+			    !evsel__get_config_val(evsel, "discard", &discard_bit))
 				discard = !!discard_bit;
 		}
 	}

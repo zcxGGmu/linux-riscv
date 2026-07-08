@@ -18,7 +18,6 @@
 #include <linux/init.h>
 #include <linux/io.h>
 #include <linux/iopoll.h>
-#include <linux/mod_devicetable.h>
 #include <linux/module.h>
 #include <linux/of_address.h>
 #include <linux/platform_device.h>
@@ -370,6 +369,9 @@ struct clk *cpg_mssr_clk_src_twocell_get(struct of_phandle_args *clkspec,
 	struct clk *clk;
 	int range_check;
 
+	if (clkspec->args_count != 2)
+		return ERR_PTR(-EINVAL);
+
 	switch (clkspec->args[0]) {
 	case CPG_CORE:
 		type = "core";
@@ -569,7 +571,7 @@ fail:
 struct cpg_mssr_clk_domain {
 	struct generic_pm_domain genpd;
 	unsigned int num_core_pm_clks;
-	unsigned int core_pm_clks[];
+	unsigned int core_pm_clks[] __counted_by(num_core_pm_clks);
 };
 
 static struct cpg_mssr_clk_domain *cpg_mssr_clk_domain;
@@ -667,7 +669,7 @@ static int __init cpg_mssr_add_clk_domain(struct device *dev,
 	size_t pm_size = num_core_pm_clks * sizeof(core_pm_clks[0]);
 	int ret;
 
-	pd = devm_kzalloc(dev, sizeof(*pd) + pm_size, GFP_KERNEL);
+	pd = devm_kzalloc(dev, struct_size(pd, core_pm_clks, num_core_pm_clks), GFP_KERNEL);
 	if (!pd)
 		return -ENOMEM;
 

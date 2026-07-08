@@ -544,7 +544,8 @@ struct bio *bio_alloc_bioset(struct block_device *bdev, unsigned short nr_vecs,
 	if (WARN_ON_ONCE(!mempool_initialized(&bs->bvec_pool) && nr_vecs > 0))
 		return NULL;
 
-	gfp = try_alloc_gfp(gfp);
+	if (saved_gfp & __GFP_DIRECT_RECLAIM)
+		gfp = try_alloc_gfp(gfp);
 	if (bs->cache && nr_vecs <= BIO_INLINE_VECS) {
 		/*
 		 * Set REQ_ALLOC_CACHE even if no cached bio is available to
@@ -634,15 +635,15 @@ struct bio *bio_kmalloc(unsigned short nr_vecs, gfp_t gfp_mask)
 }
 EXPORT_SYMBOL(bio_kmalloc);
 
-void zero_fill_bio_iter(struct bio *bio, struct bvec_iter start)
+void zero_fill_bio(struct bio *bio)
 {
 	struct bio_vec bv;
 	struct bvec_iter iter;
 
-	__bio_for_each_segment(bv, bio, iter, start)
+	bio_for_each_segment(bv, bio, iter)
 		memzero_bvec(&bv);
 }
-EXPORT_SYMBOL(zero_fill_bio_iter);
+EXPORT_SYMBOL(zero_fill_bio);
 
 /**
  * bio_truncate - truncate the bio to small size of @new_size
@@ -1048,10 +1049,10 @@ int bio_add_page(struct bio *bio, struct page *page,
 	if (bio->bi_vcnt > 0) {
 		struct bio_vec *bv = &bio->bi_io_vec[bio->bi_vcnt - 1];
 
-		if (!zone_device_pages_have_same_pgmap(bv->bv_page, page))
+		if (!zone_device_pages_compatible(bv->bv_page, page))
 			return 0;
-
-		if (bvec_try_merge_page(bv, page, len, offset)) {
+		if (zone_device_pages_have_same_pgmap(bv->bv_page, page) &&
+		    bvec_try_merge_page(bv, page, len, offset)) {
 			bio->bi_iter.bi_size += len;
 			return len;
 		}
@@ -1278,11 +1279,12 @@ int bio_iov_iter_get_pages(struct bio *bio, struct iov_iter *iter,
 	return bio_iov_iter_align_down(bio, iter, len_align_mask);
 }
 
-static struct folio *folio_alloc_greedy(gfp_t gfp, size_t *size)
+static struct folio *folio_alloc_greedy(gfp_t gfp, size_t *size,
+		size_t minsize)
 {
 	struct folio *folio;
 
-	while (*size > PAGE_SIZE) {
+	while (*size > minsize) {
 		folio = folio_alloc(gfp | __GFP_NORETRY, get_order(*size));
 		if (folio)
 			return folio;
@@ -1298,7 +1300,7 @@ static void bio_free_folios(struct bio *bio)
 	int i;
 
 	bio_for_each_bvec_all(bv, bio, i) {
-		struct folio *folio = page_folio(bv->bv_page);
+		struct folio *folio = bvec_folio(bv);
 
 		if (!is_zero_folio(folio))
 			folio_put(folio);
@@ -1306,7 +1308,7 @@ static void bio_free_folios(struct bio *bio)
 }
 
 static int bio_iov_iter_bounce_write(struct bio *bio, struct iov_iter *iter,
-		size_t maxlen)
+		size_t maxlen, size_t minsize)
 {
 	size_t total_len = min(maxlen, iov_iter_count(iter));
 
@@ -1319,40 +1321,55 @@ static int bio_iov_iter_bounce_write(struct bio *bio, struct iov_iter *iter,
 
 	do {
 		size_t this_len = min(total_len, SZ_1M);
+		size_t copied;
 		struct folio *folio;
 
-		if (this_len > PAGE_SIZE * 2)
+		if (this_len > minsize * 2)
 			this_len = rounddown_pow_of_two(this_len);
 
 		if (bio->bi_iter.bi_size > BIO_MAX_SIZE - this_len)
 			break;
 
-		folio = folio_alloc_greedy(GFP_KERNEL, &this_len);
+		folio = folio_alloc_greedy(GFP_KERNEL, &this_len, minsize);
 		if (!folio)
 			break;
 		bio_add_folio_nofail(bio, folio, this_len, 0);
 
-		if (copy_from_iter(folio_address(folio), this_len, iter) !=
-				this_len) {
+		if (iter->nofault)
+			copied = copy_folio_from_iter_atomic(folio, 0, this_len,
+							     iter);
+		else
+			copied = copy_folio_from_iter(folio, 0, this_len, iter);
+		if (copied < this_len) {
+			/*
+			 * Need to revert the iov iter for all bytes we have
+			 * copied.
+			 *
+			 * However the bio size differs from the real copied
+			 * bytes as @this_len is queued but only advanced
+			 * less than that.
+			 * Need to compensate that for the revert.
+			 */
+			iov_iter_revert(iter, bio->bi_iter.bi_size - this_len +
+					copied);
 			bio_free_folios(bio);
 			return -EFAULT;
 		}
-
 		total_len -= this_len;
 	} while (total_len && bio->bi_vcnt < bio->bi_max_vecs);
 
 	if (!bio->bi_iter.bi_size)
 		return -ENOMEM;
-	return 0;
+	return bio_iov_iter_align_down(bio, iter, minsize - 1);
 }
 
 static int bio_iov_iter_bounce_read(struct bio *bio, struct iov_iter *iter,
-		size_t maxlen)
+		size_t maxlen, size_t minsize)
 {
 	size_t len = min3(iov_iter_count(iter), maxlen, SZ_1M);
 	struct folio *folio;
 
-	folio = folio_alloc_greedy(GFP_KERNEL, &len);
+	folio = folio_alloc_greedy(GFP_KERNEL, &len, minsize);
 	if (!folio)
 		return -ENOMEM;
 
@@ -1381,7 +1398,7 @@ static int bio_iov_iter_bounce_read(struct bio *bio, struct iov_iter *iter,
 	bvec_set_folio(&bio->bi_io_vec[0], folio, bio->bi_iter.bi_size, 0);
 	if (iov_iter_extract_will_pin(iter))
 		bio_set_flag(bio, BIO_PAGE_PINNED);
-	return 0;
+	return bio_iov_iter_align_down(bio, iter, minsize - 1);
 }
 
 /**
@@ -1389,6 +1406,7 @@ static int bio_iov_iter_bounce_read(struct bio *bio, struct iov_iter *iter,
  * @bio:	bio to send
  * @iter:	iter to read from / write into
  * @maxlen:	maximum size to bounce
+ * @minsize:	minimum folio allocation size
  *
  * Helper for direct I/O implementations that need to bounce buffer because
  * we need to checksum the data or perform other operations that require
@@ -1396,16 +1414,17 @@ static int bio_iov_iter_bounce_read(struct bio *bio, struct iov_iter *iter,
  * copies the data into it.  Needs to be paired with bio_iov_iter_unbounce()
  * called on completion.
  */
-int bio_iov_iter_bounce(struct bio *bio, struct iov_iter *iter, size_t maxlen)
+int bio_iov_iter_bounce(struct bio *bio, struct iov_iter *iter, size_t maxlen,
+			size_t minsize)
 {
 	if (op_is_write(bio_op(bio)))
-		return bio_iov_iter_bounce_write(bio, iter, maxlen);
-	return bio_iov_iter_bounce_read(bio, iter, maxlen);
+		return bio_iov_iter_bounce_write(bio, iter, maxlen, minsize);
+	return bio_iov_iter_bounce_read(bio, iter, maxlen, minsize);
 }
 
 static void bvec_unpin(struct bio_vec *bv, bool mark_dirty)
 {
-	struct folio *folio = page_folio(bv->bv_page);
+	struct folio *folio = bvec_folio(bv);
 	size_t nr_pages = (bv->bv_offset + bv->bv_len - 1) / PAGE_SIZE -
 			bv->bv_offset / PAGE_SIZE + 1;
 
@@ -1439,7 +1458,7 @@ static void bio_iov_iter_unbounce_read(struct bio *bio, bool is_error,
 			bvec_unpin(&bio->bi_io_vec[1 + i], mark_dirty);
 	}
 
-	folio_put(page_folio(bio->bi_io_vec[0].bv_page));
+	folio_put(bvec_folio(&bio->bi_io_vec[0]));
 }
 
 /**
@@ -1574,26 +1593,6 @@ void __bio_advance(struct bio *bio, unsigned bytes)
 }
 EXPORT_SYMBOL(__bio_advance);
 
-void bio_copy_data_iter(struct bio *dst, struct bvec_iter *dst_iter,
-			struct bio *src, struct bvec_iter *src_iter)
-{
-	while (src_iter->bi_size && dst_iter->bi_size) {
-		struct bio_vec src_bv = bio_iter_iovec(src, *src_iter);
-		struct bio_vec dst_bv = bio_iter_iovec(dst, *dst_iter);
-		unsigned int bytes = min(src_bv.bv_len, dst_bv.bv_len);
-		void *src_buf = bvec_kmap_local(&src_bv);
-		void *dst_buf = bvec_kmap_local(&dst_bv);
-
-		memcpy(dst_buf, src_buf, bytes);
-
-		kunmap_local(dst_buf);
-		kunmap_local(src_buf);
-
-		bio_advance_iter_single(src, src_iter, bytes);
-		bio_advance_iter_single(dst, dst_iter, bytes);
-	}
-}
-EXPORT_SYMBOL(bio_copy_data_iter);
 
 /**
  * bio_copy_data - copy contents of data buffers from one bio to another
@@ -1608,7 +1607,21 @@ void bio_copy_data(struct bio *dst, struct bio *src)
 	struct bvec_iter src_iter = src->bi_iter;
 	struct bvec_iter dst_iter = dst->bi_iter;
 
-	bio_copy_data_iter(dst, &dst_iter, src, &src_iter);
+	while (src_iter.bi_size && dst_iter.bi_size) {
+		struct bio_vec src_bv = bio_iter_iovec(src, src_iter);
+		struct bio_vec dst_bv = bio_iter_iovec(dst, dst_iter);
+		unsigned int bytes = min(src_bv.bv_len, dst_bv.bv_len);
+		void *src_buf = bvec_kmap_local(&src_bv);
+		void *dst_buf = bvec_kmap_local(&dst_bv);
+
+		memcpy(dst_buf, src_buf, bytes);
+
+		kunmap_local(dst_buf);
+		kunmap_local(src_buf);
+
+		bio_advance_iter_single(src, &src_iter, bytes);
+		bio_advance_iter_single(dst, &dst_iter, bytes);
+	}
 }
 EXPORT_SYMBOL(bio_copy_data);
 
@@ -1655,7 +1668,6 @@ void bio_set_pages_dirty(struct bio *bio)
 		folio_unlock(fi.folio);
 	}
 }
-EXPORT_SYMBOL_GPL(bio_set_pages_dirty);
 
 /*
  * bio_check_pages_dirty() will check that all the BIO's pages are still dirty.
@@ -1714,7 +1726,6 @@ defer:
 	spin_unlock_irqrestore(&bio_dirty_lock, flags);
 	schedule_work(&bio_dirty_work);
 }
-EXPORT_SYMBOL_GPL(bio_check_pages_dirty);
 
 static inline bool bio_remaining_done(struct bio *bio)
 {
@@ -1880,7 +1891,7 @@ EXPORT_SYMBOL_GPL(bio_trim);
  * create memory pools for biovec's in a bio_set.
  * use the global biovec slabs created for general use.
  */
-int biovec_init_pool(mempool_t *pool, int pool_entries)
+static int biovec_init_pool(mempool_t *pool, int pool_entries)
 {
 	struct biovec_slab *bp = bvec_slabs + ARRAY_SIZE(bvec_slabs) - 1;
 
@@ -1958,7 +1969,7 @@ int bioset_init(struct bio_set *bs,
 
 	if (flags & BIOSET_NEED_RESCUER) {
 		bs->rescue_workqueue = alloc_workqueue("bioset",
-							WQ_MEM_RECLAIM, 0);
+							WQ_MEM_RECLAIM | WQ_PERCPU, 0);
 		if (!bs->rescue_workqueue)
 			goto bad;
 	}

@@ -3,10 +3,13 @@
  * Copyright(C) 2015 Linaro Limited. All rights reserved.
  * Author: Mathieu Poirier <mathieu.poirier@linaro.org>
  */
+#include "../../../util/cs-etm.h"
 
-#include <api/fs/fs.h>
-#include <linux/bits.h>
+#include <errno.h>
+#include <stdlib.h>
+
 #include <linux/bitops.h>
+#include <linux/bits.h>
 #include <linux/compiler.h>
 #include <linux/coresight-pmu.h>
 #include <linux/kernel.h>
@@ -14,25 +17,24 @@
 #include <linux/string.h>
 #include <linux/types.h>
 #include <linux/zalloc.h>
+#include <sys/stat.h>
 
-#include "cs-etm.h"
-#include "../../../util/debug.h"
-#include "../../../util/record.h"
+#include <api/fs/fs.h>
+#include <internal/lib.h> // page_size
+
 #include "../../../util/auxtrace.h"
 #include "../../../util/cpumap.h"
+#include "../../../util/debug.h"
 #include "../../../util/event.h"
 #include "../../../util/evlist.h"
 #include "../../../util/evsel.h"
-#include "../../../util/perf_api_probe.h"
 #include "../../../util/evsel_config.h"
+#include "../../../util/perf_api_probe.h"
+#include "../../../util/pmu.h"
 #include "../../../util/pmus.h"
-#include "../../../util/cs-etm.h"
-#include <internal/lib.h> // page_size
+#include "../../../util/record.h"
 #include "../../../util/session.h"
-
-#include <errno.h>
-#include <stdlib.h>
-#include <sys/stat.h>
+#include "cs-etm.h"
 
 struct cs_etm_recording {
 	struct auxtrace_record	itr;
@@ -197,7 +199,8 @@ static struct perf_pmu *cs_etm_get_pmu(struct auxtrace_record *itr)
 static int cs_etm_validate_config(struct perf_pmu *cs_etm_pmu,
 				  struct evsel *evsel)
 {
-	int idx, err = 0;
+	unsigned int idx;
+	int err = 0;
 	struct perf_cpu_map *event_cpus = evsel->evlist->core.user_requested_cpus;
 	struct perf_cpu_map *intersect_cpus;
 	struct perf_cpu cpu;
@@ -546,7 +549,7 @@ static size_t
 cs_etm_info_priv_size(struct auxtrace_record *itr,
 		      struct evlist *evlist)
 {
-	int idx;
+	unsigned int idx;
 	int etmv3 = 0, etmv4 = 0, ete = 0;
 	struct perf_cpu_map *event_cpus = evlist->core.user_requested_cpus;
 	struct perf_cpu_map *intersect_cpus;
@@ -783,7 +786,7 @@ static int cs_etm_info_fill(struct auxtrace_record *itr,
 			    struct perf_record_auxtrace_info *info,
 			    size_t priv_size)
 {
-	int i;
+	unsigned int i;
 	u32 offset;
 	u64 nr_cpu, type;
 	struct perf_cpu_map *cpu_map;

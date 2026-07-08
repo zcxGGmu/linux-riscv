@@ -10,7 +10,6 @@
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
-#include <crypto/skcipher.h>
 #include <linux/module.h>
 #include <linux/net.h>
 #include <linux/overflow.h>
@@ -500,6 +499,10 @@ static int rxrpc_preparse(struct key_preparsed_payload *prep)
 
 	ret = -EPROTONOSUPPORT;
 	if (v1->security_index != RXRPC_SECURITY_RXKAD)
+		goto error;
+
+	ret = -EKEYREJECTED;
+	if (v1->ticket_length > AFSTOKEN_RK_TIX_MAX)
 		goto error;
 
 	plen = sizeof(*token->kad) + v1->ticket_length;

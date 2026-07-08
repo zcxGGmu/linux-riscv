@@ -930,7 +930,6 @@ redo_request:
 	if (blocked)
 		goto wait;
 
-	ret = -EINVAL;
 	dlm_node_iter_init(mle->vote_map, &iter);
 	while ((nodenum = dlm_node_iter_next(&iter)) >= 0) {
 		ret = dlm_do_master_request(res, mle, nodenum);
@@ -2549,7 +2548,7 @@ static int dlm_migrate_lockres(struct dlm_ctxt *dlm,
 
 	/* preallocate up front. if this fails, abort */
 	ret = -ENOMEM;
-	mres = (struct dlm_migratable_lockres *) __get_free_page(GFP_NOFS);
+	mres = kmalloc(PAGE_SIZE, GFP_NOFS);
 	if (!mres) {
 		mlog_errno(ret);
 		goto leave;
@@ -2726,8 +2725,7 @@ leave:
 	if (wake)
 		wake_up(&res->wq);
 
-	if (mres)
-		free_page((unsigned long)mres);
+	kfree(mres);
 
 	dlm_put(dlm);
 

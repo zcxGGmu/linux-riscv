@@ -128,7 +128,7 @@ struct bme680_data {
 	u16 heater_temp;
 
 	struct {
-		s32 chan[4];
+		s32 chan[BME680_NUM_CHANNELS];
 		aligned_s64 ts;
 	} scan;
 
@@ -807,7 +807,7 @@ static int bme680_read_gas(struct bme680_data *data, int *comp_gas_res)
 	adc_gas_res = FIELD_GET(BME680_ADC_GAS_RES, gas_regs_val);
 
 	/*
-	 * occurs if either the gas heating duration was insuffient
+	 * This may occur if either the gas heating duration was insufficient
 	 * to reach the target heater temperature or the target
 	 * heater temperature was too high for the heater sink to
 	 * reach.

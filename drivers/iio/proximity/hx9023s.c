@@ -19,7 +19,6 @@
 #include <linux/interrupt.h>
 #include <linux/irqreturn.h>
 #include <linux/math64.h>
-#include <linux/mod_devicetable.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
 #include <linux/pm.h>
@@ -1088,6 +1087,7 @@ static int hx9023s_probe(struct i2c_client *client)
 	struct device *dev = &client->dev;
 	struct iio_dev *indio_dev;
 	struct hx9023s_data *data;
+	const char *fw_name;
 	int ret;
 
 	indio_dev = devm_iio_device_alloc(dev, sizeof(*data));
@@ -1125,7 +1125,9 @@ static int hx9023s_probe(struct i2c_client *client)
 	if (ret)
 		return dev_err_probe(dev, ret, "channel config failed\n");
 
-	ret = request_firmware_nowait(THIS_MODULE, true, "hx9023s.bin", dev,
+	fw_name = "hx9023s.bin";
+	device_property_read_string(dev, "firmware-name", &fw_name);
+	ret = request_firmware_nowait(THIS_MODULE, true, fw_name, dev,
 				      GFP_KERNEL, data, hx9023s_cfg_update);
 	if (ret)
 		return dev_err_probe(dev, ret, "reg config failed\n");
@@ -1196,7 +1198,7 @@ static const struct of_device_id hx9023s_of_match[] = {
 MODULE_DEVICE_TABLE(of, hx9023s_of_match);
 
 static const struct i2c_device_id hx9023s_id[] = {
-	{ "hx9023s" },
+	{ .name = "hx9023s" },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, hx9023s_id);

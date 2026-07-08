@@ -6,6 +6,19 @@
 #define MUTEX_WAITER	mutex_waiter
 #define WAIT_LOCK	wait_lock
 
+/*
+ *           +--------+
+ *           | first  |
+ *           +--------+
+ *                |
+ *                v
+ *  +----+     +----+     +----+
+ *  | W3 | <-> | W1 | <-> | W2 |
+ *  +----+     +----+     +----+
+ *    ^                     ^
+ *    +---------------------+
+ */
+
 static inline struct mutex_waiter *
 __ww_waiter_first(struct mutex *lock)
 	__must_hold(&lock->wait_lock)
@@ -13,26 +26,43 @@ __ww_waiter_first(struct mutex *lock)
 	return lock->first_waiter;
 }
 
+/*
+ * for (cur = __ww_waiter_first(); cur; cur = __ww_waiter_next())
+ *
+ * Should iterate like: W1, W2, W3
+ */
 static inline struct mutex_waiter *
 __ww_waiter_next(struct mutex *lock, struct mutex_waiter *w)
 	__must_hold(&lock->wait_lock)
 {
 	w = list_next_entry(w, list);
+	/*
+	 * Terminate if the next entry is the first again, that has already
+	 * been observed.
+	 */
 	if (lock->first_waiter == w)
 		return NULL;
 
 	return w;
 }
 
+/*
+ * for (cur = __ww_waiter_last(); cur; cur = __ww_waiter_prev())
+ *
+ * Should iterate like: W3, W2, W1
+ */
 static inline struct mutex_waiter *
 __ww_waiter_prev(struct mutex *lock, struct mutex_waiter *w)
 	__must_hold(&lock->wait_lock)
 {
-	w = list_prev_entry(w, list);
+	/*
+	 * Terminate at the first entry, the previous entry of first is the
+	 * last and that has already been observed.
+	 */
 	if (lock->first_waiter == w)
 		return NULL;
 
-	return w;
+	return list_prev_entry(w, list);
 }
 
 static inline struct mutex_waiter *
@@ -294,7 +324,7 @@ __ww_mutex_die(struct MUTEX *lock, struct MUTEX_WAITER *waiter,
 		 * blocked_on to PROXY_WAKING. Otherwise we can see
 		 * circular blocked_on relationships that can't resolve.
 		 */
-		set_task_blocked_on_waking(waiter->task, lock);
+		clear_task_blocked_on(waiter->task, lock);
 		wake_q_add(wake_q, waiter->task);
 	}
 
@@ -353,7 +383,7 @@ static bool __ww_mutex_wound(struct MUTEX *lock,
 			 * are waking the mutex owner, who may be currently
 			 * blocked on a different mutex.
 			 */
-			set_task_blocked_on_waking(owner, NULL);
+			clear_task_blocked_on(owner, NULL);
 			wake_q_add(wake_q, owner);
 		}
 		return true;

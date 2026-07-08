@@ -1192,8 +1192,7 @@ int rvt_create_qp(struct ib_qp *ibqp, struct ib_qp_init_attr *init_attr,
 		if (!qp->r_rq.wq) {
 			__u64 offset = 0;
 
-			ret = ib_copy_to_udata(udata, &offset,
-					       sizeof(offset));
+			ret = ib_respond_udata(udata, offset);
 			if (ret)
 				goto bail_qpn;
 		} else {
@@ -2705,7 +2704,7 @@ int rvt_qp_iter_next(struct rvt_qp_iter *iter)
 				struct rvt_ibport *rvp;
 				int pidx;
 
-				pidx = n % rdi->ibdev.phys_port_cnt;
+				pidx = n / 2; /* QP0 and QP1 */
 				rvp = rdi->ports[pidx];
 				qp = rcu_dereference(rvp->qp[n & 1]);
 			} else {

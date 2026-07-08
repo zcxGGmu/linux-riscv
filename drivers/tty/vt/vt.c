@@ -1680,9 +1680,7 @@ static void rgb_background(struct vc_data *vc, const struct rgb *c)
 
 /*
  * ITU T.416 Higher colour modes. They break the usual properties of SGR codes
- * and thus need to be detected and ignored by hand. That standard also
- * wants : rather than ; as separators but sequences containing : are currently
- * completely ignored by the parser.
+ * and thus need to be detected and ignored by hand.
  *
  * Subcommands 3 (CMY) and 4 (CMYK) are so insane there's no point in
  * supporting them.
@@ -1739,6 +1737,7 @@ enum {
 	CSI_m_BG_COLOR_END		= 47,
 	CSI_m_BG_COLOR			= 48,
 	CSI_m_DEFAULT_BG_COLOR		= 49,
+	CSI_m_UNDERLINE_COLOR		= 58,
 	CSI_m_BRIGHT_FG_COLOR_BEG	= 90,
 	CSI_m_BRIGHT_FG_COLOR_END	= 97,
 	CSI_m_BRIGHT_FG_COLOR_OFF	= CSI_m_BRIGHT_FG_COLOR_BEG - CSI_m_FG_COLOR_BEG,
@@ -2218,6 +2217,7 @@ static void restore_cur(struct vc_data *vc)
  * @ESesc:		ESC parsed
  * @ESsquare:		CSI parsed -- modifiers/parameters/ctrl chars expected
  * @ESgetpars:		CSI parsed -- parameters/ctrl chars expected
+ * @ESgetsubpars:	CSI m parsed -- subparameters expected
  * @ESfunckey:		CSI [ parsed
  * @EShash:		ESC # parsed
  * @ESsetG0:		ESC ( parsed
@@ -2238,6 +2238,7 @@ enum vc_ctl_state {
 	ESesc,
 	ESsquare,
 	ESgetpars,
+	ESgetsubpars,
 	ESfunckey,
 	EShash,
 	ESsetG0,
@@ -2759,6 +2760,47 @@ static void do_con_trol(struct tty_struct *tty, struct vc_data *vc, u8 c)
 		fallthrough;
 	case ESgetpars: /* ESC [ aka CSI, parameters expected */
 		switch (c) {
+		case ':': /* ITU-T T.416 color subparameters */
+			if (vc->vc_par[vc->vc_npar] == CSI_m_FG_COLOR ||
+			    vc->vc_par[vc->vc_npar] == CSI_m_BG_COLOR ||
+			    vc->vc_par[vc->vc_npar] == CSI_m_UNDERLINE_COLOR)
+				vc->vc_state = ESgetsubpars;
+			else
+				break;
+			fallthrough;
+		case ';':
+			if (vc->vc_npar < NPAR - 1) {
+				vc->vc_npar++;
+				return;
+			}
+			break;
+		case '0' ... '9':
+			vc->vc_par[vc->vc_npar] *= 10;
+			vc->vc_par[vc->vc_npar] += c - '0';
+			return;
+		}
+		if (c >= ASCII_CSI_IGNORE_FIRST && c <= ASCII_CSI_IGNORE_LAST) {
+			vc->vc_state = EScsiignore;
+			return;
+		}
+
+		/* parameters done, handle the control char @c */
+
+		vc->vc_state = ESnormal;
+
+		switch (vc->vc_priv) {
+		case EPdec:
+			csi_DEC(tty, vc, c);
+			return;
+		case EPecma:
+			csi_ECMA(tty, vc, c);
+			return;
+		default:
+			return;
+		}
+	case ESgetsubpars: /* ESC [ 38/48/58, subparameters expected */
+		switch (c) {
+		case ':':
 		case ';':
 			if (vc->vc_npar < NPAR - 1) {
 				vc->vc_npar++;
@@ -3052,8 +3094,12 @@ static void vc_con_rewind(struct vc_data *vc)
 static int vc_process_ucs(struct vc_data *vc, int *c, int *tc)
 {
 	u32 prev_c, curr_c = *c;
+	unsigned int w = ucs_get_width(curr_c);
 
-	if (ucs_is_double_width(curr_c)) {
+	if (likely(w == 1))
+		return 1;
+
+	if (w == 2) {
 		/*
 		 * The Unicode screen memory is allocated only when
 		 * required. This is one such case as we need to remember
@@ -3063,12 +3109,9 @@ static int vc_process_ucs(struct vc_data *vc, int *c, int *tc)
 		return 2;
 	}
 
-	if (!ucs_is_zero_width(curr_c))
-		return 1;
-
 	/* From here curr_c is known to be zero-width. */
 
-	if (ucs_is_double_width(vc_uniscr_getc(vc, -2))) {
+	if (ucs_get_width(vc_uniscr_getc(vc, -2)) == 2) {
 		/*
 		 * Let's merge this zero-width code point with the preceding
 		 * double-width code point by replacing the existing
@@ -3936,9 +3979,6 @@ int __init vty_init(const struct file_operations *console_fops)
 		panic("Couldn't register console driver\n");
 	kbd_init();
 	console_map_init();
-#ifdef CONFIG_MDA_CONSOLE
-	mda_console_init();
-#endif
 	return 0;
 }
 

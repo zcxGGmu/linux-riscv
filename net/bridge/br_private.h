@@ -183,6 +183,7 @@ enum {
 	BR_VLFLAG_GLOBAL_MCAST_ENABLED = BIT(3),
 	BR_VLFLAG_NEIGH_SUPPRESS_ENABLED = BIT(4),
 	BR_VLFLAG_TAGGING_BY_SWITCHDEV = BIT(5),
+	BR_VLFLAG_NEIGH_FORWARD_GRAT_ENABLED = BIT(6),
 };
 
 /**
@@ -451,7 +452,7 @@ struct net_bridge_port {
 #define kobj_to_brport(obj)	container_of(obj, struct net_bridge_port, kobj)
 
 #define br_auto_port(p) ((p)->flags & BR_AUTO_MASK)
-#define br_promisc_port(p) ((p)->flags & BR_PROMISC)
+#define br_promisc_port(p) test_bit(BR_PROMISC_BIT, &(p)->flags)
 
 static inline struct net_bridge_port *br_port_get_rcu(const struct net_device *dev)
 {
@@ -600,6 +601,7 @@ struct br_input_skb_cb {
 	u8 proxyarp_replied:1;
 	u8 src_port_isolated:1;
 	u8 promisc:1;
+	u8 grat_arp:1;
 #ifdef CONFIG_BRIDGE_VLAN_FILTERING
 	u8 vlan_filtered:1;
 #endif
@@ -855,7 +857,6 @@ void br_fdb_delete_by_port(struct net_bridge *br,
 struct net_bridge_fdb_entry *br_fdb_find_rcu(struct net_bridge *br,
 					     const unsigned char *addr,
 					     __u16 vid);
-int br_fdb_test_addr(struct net_device *dev, unsigned char *addr);
 int br_fdb_fillbuf(struct net_bridge *br, void *buf, unsigned long count,
 		   unsigned long off);
 int br_fdb_add_local(struct net_bridge *br, struct net_bridge_port *source,
@@ -2065,9 +2066,6 @@ void br_stp_port_timer_init(struct net_bridge_port *p);
 unsigned long br_timer_value(const struct timer_list *timer);
 
 /* br.c */
-#if IS_ENABLED(CONFIG_ATM_LANE)
-extern int (*br_fdb_test_addr_hook)(struct net_device *dev, unsigned char *addr);
-#endif
 
 /* br_mrp.c */
 #if IS_ENABLED(CONFIG_BRIDGE_MRP)
@@ -2365,4 +2363,5 @@ void br_do_suppress_nd(struct sk_buff *skb, struct net_bridge *br,
 		       u16 vid, struct net_bridge_port *p, struct nd_msg *msg);
 struct nd_msg *br_is_nd_neigh_msg(const struct sk_buff *skb, struct nd_msg *m);
 bool br_is_neigh_suppress_enabled(const struct net_bridge_port *p, u16 vid);
+bool br_is_neigh_forward_grat_enabled(const struct net_bridge_port *p, u16 vid);
 #endif

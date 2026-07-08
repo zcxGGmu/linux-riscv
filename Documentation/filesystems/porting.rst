@@ -1297,7 +1297,6 @@ Several functions are renamed:
 -  kern_path_locked -> start_removing_path
 -  kern_path_create -> start_creating_path
 -  user_path_create -> start_creating_user_path
--  user_path_locked_at -> start_removing_user_path_at
 -  done_path_create -> end_creating_path
 
 ---
@@ -1368,6 +1367,7 @@ lifetime, consider using inode_set_cached_link() instead.
 
 lookup_one_qstr_excl() is no longer exported - use start_creating() or
 similar.
+
 ---
 
 ** mandatory**
@@ -1375,3 +1375,29 @@ similar.
 lock_rename(), lock_rename_child(), unlock_rename() are no
 longer available.  Use start_renaming() or similar.
 
+---
+
+**recommended**
+
+If you really need to iterate through dentries for given inode, use
+for_each_alias(dentry, inode) instead of hlist_for_each_entry; better
+yet, see if any of the exported primitives could be used instead of
+the entire loop.  You still need to hold ->i_lock of the inode over
+either form of manual loop.
+
+---
+
+**mandatory**
+
+d_alloc_parallel() no longer requires a waitqueue_head.
+
+---
+
+**mandatory**
+
+d_dispose_if_unused() is gone; use __move_to_shrink_list() if you really
+need that functionality, but watch out for memory safety issues - just
+as with d_dispose_if_unused() these are not trivial; with this variant
+of API it's more explicit, since grabbing ->d_lock is caller-side, but
+d_dispose_if_unused() had all the same issues.  It's a low-level primitive;
+use only if you have no alternative.

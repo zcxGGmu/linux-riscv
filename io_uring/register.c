@@ -503,6 +503,7 @@ static int io_register_resize_rings(struct io_ring_ctx *ctx, void __user *arg)
 	unsigned i, tail, old_head;
 	struct io_uring_params *p = &config.p;
 	struct io_rings_layout *rl = &config.layout;
+	u32 *o_sq_array, *n_sq_array = NULL;
 	int ret;
 
 	memset(&config, 0, sizeof(config));
@@ -589,6 +590,9 @@ static int io_register_resize_rings(struct io_ring_ctx *ctx, void __user *arg)
 	ctx->rings = NULL;
 	o.sq_sqes = ctx->sq_sqes;
 	ctx->sq_sqes = NULL;
+	o_sq_array = ctx->sq_array;
+	if (!(ctx->flags & IORING_SETUP_NO_SQARRAY))
+		n_sq_array = (u32 *)((char *)n.rings + rl->sq_array_offset);
 
 	/*
 	 * Now copy SQ and CQ entries, if any. If either of the destination
@@ -599,10 +603,27 @@ static int io_register_resize_rings(struct io_ring_ctx *ctx, void __user *arg)
 	if (tail - old_head > p->sq_entries)
 		goto overflow;
 	for (i = old_head; i < tail; i++) {
-		unsigned src_head = i & (ctx->sq_entries - 1);
-		unsigned dst_head = i & (p->sq_entries - 1);
+		unsigned int dst, src;
+		size_t sq_size;
 
-		n.sq_sqes[dst_head] = o.sq_sqes[src_head];
+		dst = i & (p->sq_entries - 1);
+		src = i & (ctx->sq_entries - 1);
+		if (n_sq_array) {
+			src = READ_ONCE(o_sq_array[src]);
+			if (unlikely(src >= ctx->sq_entries)) {
+				WRITE_ONCE(n_sq_array[dst], UINT_MAX);
+				continue;
+			}
+			WRITE_ONCE(n_sq_array[dst], dst);
+		}
+
+		sq_size = sizeof(struct io_uring_sqe);
+		if (ctx->flags & IORING_SETUP_SQE128) {
+			dst <<= 1;
+			src <<= 1;
+			sq_size <<= 1;
+		}
+		memcpy(&n.sq_sqes[dst], &o.sq_sqes[src], sq_size);
 	}
 	WRITE_ONCE(n.rings->sq.head, old_head);
 	WRITE_ONCE(n.rings->sq.tail, tail);
@@ -619,10 +640,20 @@ overflow:
 		goto out;
 	}
 	for (i = old_head; i < tail; i++) {
-		unsigned src_head = i & (ctx->cq_entries - 1);
-		unsigned dst_head = i & (p->cq_entries - 1);
+		unsigned index, dst_mask, src_mask;
+		size_t cq_size;
 
-		n.rings->cqes[dst_head] = o.rings->cqes[src_head];
+		index = i;
+		cq_size = sizeof(struct io_uring_cqe);
+		src_mask = ctx->cq_entries - 1;
+		dst_mask = p->cq_entries - 1;
+		if (ctx->flags & IORING_SETUP_CQE32) {
+			index <<= 1;
+			cq_size <<= 1;
+			src_mask = (ctx->cq_entries << 1) - 1;
+			dst_mask = (p->cq_entries << 1) - 1;
+		}
+		memcpy(&n.rings->cqes[index & dst_mask], &o.rings->cqes[index & src_mask], cq_size);
 	}
 	WRITE_ONCE(n.rings->cq.head, old_head);
 	WRITE_ONCE(n.rings->cq.tail, tail);
@@ -635,8 +666,8 @@ overflow:
 	WRITE_ONCE(n.rings->cq_overflow, READ_ONCE(o.rings->cq_overflow));
 
 	/* all done, store old pointers and assign new ones */
-	if (!(ctx->flags & IORING_SETUP_NO_SQARRAY))
-		ctx->sq_array = (u32 *)((char *)n.rings + rl->sq_array_offset);
+	if (n_sq_array)
+		ctx->sq_array = n_sq_array;
 
 	ctx->sq_entries = p->sq_entries;
 	ctx->cq_entries = p->cq_entries;

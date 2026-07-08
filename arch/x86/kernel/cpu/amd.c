@@ -16,6 +16,7 @@
 #include <asm/cacheinfo.h>
 #include <asm/cpu.h>
 #include <asm/cpu_device_id.h>
+#include <asm/cpuid/api.h>
 #include <asm/spec-ctrl.h>
 #include <asm/smp.h>
 #include <asm/numa.h>
@@ -518,7 +519,7 @@ static void bsp_init_amd(struct cpuinfo_x86 *c)
 			break;
 		case 0x50 ... 0x5f:
 		case 0x80 ... 0xaf:
-		case 0xc0 ... 0xcf:
+		case 0xc0 ... 0xef:
 			setup_force_cpu_cap(X86_FEATURE_ZEN6);
 			break;
 		default:
@@ -944,6 +945,9 @@ static void init_amd_zen1(struct cpuinfo_x86 *c)
 		msr_clear_bit(MSR_K7_HWCR, MSR_K7_HWCR_IRPERF_EN_BIT);
 		clear_cpu_cap(c, X86_FEATURE_IRPERF);
 	}
+
+	pr_notice_once("AMD Zen1 FPDSS bug detected, enabling mitigation.\n");
+	msr_set_bit(MSR_AMD64_FP_CFG, MSR_AMD64_FP_CFG_ZEN1_DENORM_FIX_BIT);
 }
 
 static const struct x86_cpu_id amd_zenbleed_microcode[] = {
@@ -986,6 +990,9 @@ static void init_amd_zen2(struct cpuinfo_x86 *c)
 
 	/* Correct misconfigured CPUID on some clients. */
 	clear_cpu_cap(c, X86_FEATURE_INVLPGB);
+
+	if (!cpu_has(c, X86_FEATURE_HYPERVISOR))
+		msr_set_bit(MSR_ZEN4_BP_CFG, MSR_ZEN2_BP_CFG_BUG_FIX_BIT);
 }
 
 static void init_amd_zen3(struct cpuinfo_x86 *c)

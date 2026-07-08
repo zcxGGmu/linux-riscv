@@ -276,8 +276,9 @@ struct vmbus_connection {
 	struct list_head chn_list;
 	struct mutex channel_mutex;
 
-	/* Array of channels */
+	/* Array of channel pointers, indexed by relid */
 	struct vmbus_channel **channels;
+	u32 relid_hiwater;
 
 	/*
 	 * An offer message is handled first on the work_queue, and then
@@ -440,7 +441,6 @@ void hv_vss_deinit(void);
 int hv_vss_pre_suspend(void);
 int hv_vss_pre_resume(void);
 void hv_vss_onchannelcallback(void *context);
-void vmbus_initiate_unload(bool crash);
 
 static inline void hv_poll_channel(struct vmbus_channel *channel,
 				   void (*cb)(void *))

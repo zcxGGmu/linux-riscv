@@ -63,9 +63,6 @@ void __jbd2_debug(int level, const char *file, const char *func,
 #define jbd2_debug(n, fmt, a...)  no_printk(fmt, ##a)
 #endif
 
-extern void *jbd2_alloc(size_t size, gfp_t flags);
-extern void jbd2_free(void *ptr, size_t size);
-
 #define JBD2_MIN_JOURNAL_BLOCKS 1024
 #define JBD2_DEFAULT_FAST_COMMIT_BLOCKS 256
 
@@ -429,21 +426,45 @@ struct jbd2_inode {
 	unsigned long i_flags;
 
 	/**
-	 * @i_dirty_start:
+	 * @i_dirty_start_page:
 	 *
-	 * Offset in bytes where the dirty range for this inode starts.
+	 * Dirty range start in PAGE_SIZE units.
+	 *
+	 * The dirty range is empty if @i_dirty_start_page is greater than or
+	 * equal to @i_dirty_end_page.
+	 *
 	 * [j_list_lock]
 	 */
-	loff_t i_dirty_start;
+	pgoff_t i_dirty_start_page;
 
 	/**
-	 * @i_dirty_end:
+	 * @i_dirty_end_page:
 	 *
-	 * Inclusive offset in bytes where the dirty range for this inode
-	 * ends. [j_list_lock]
+	 * Dirty range end in PAGE_SIZE units (exclusive).
+	 *
+	 * [j_list_lock]
 	 */
-	loff_t i_dirty_end;
+	pgoff_t i_dirty_end_page;
 };
+
+/*
+ * Lockless readers treat start_page >= end_page as an empty range.
+ * Writers publish a new non-empty range by storing i_dirty_end_page before
+ * i_dirty_start_page.
+ */
+static inline bool jbd2_jinode_get_dirty_range(const struct jbd2_inode *jinode,
+					       loff_t *start, loff_t *end)
+{
+	pgoff_t start_page = READ_ONCE(jinode->i_dirty_start_page);
+	pgoff_t end_page = READ_ONCE(jinode->i_dirty_end_page);
+
+	if (start_page >= end_page)
+		return false;
+
+	*start = (loff_t)start_page << PAGE_SHIFT;
+	*end = ((loff_t)end_page << PAGE_SHIFT) - 1;
+	return true;
+}
 
 struct jbd2_revoke_table_s;
 

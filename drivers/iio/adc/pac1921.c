@@ -856,7 +856,7 @@ static ssize_t pac1921_format_scale_avail(const int (*const scales_tbl)[2],
 /*
  * Read available scales for a specific channel
  *
- * NOTE: using extended info insted of iio.read_avail() because access to
+ * NOTE: using extended info instead of iio.read_avail() because access to
  * current scales must be locked as they depend on shunt resistor which may
  * change runtime. Caller of iio.read_avail() would access the table unlocked
  * instead.
@@ -1310,7 +1310,7 @@ static int pac1921_probe(struct i2c_client *client)
 }
 
 static const struct i2c_device_id pac1921_id[] = {
-	{ .name = "pac1921", 0 },
+	{ .name = "pac1921" },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, pac1921_id);

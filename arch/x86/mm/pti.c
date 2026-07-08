@@ -31,6 +31,7 @@
 
 #include <asm/cpufeature.h>
 #include <asm/hypervisor.h>
+#include <asm/cpuid/api.h>
 #include <asm/vsyscall.h>
 #include <asm/cmdline.h>
 #include <asm/pti.h>
@@ -104,6 +105,11 @@ void __init pti_check_boottime_disable(void)
 	if (cpu_feature_enabled(X86_FEATURE_INVLPGB)) {
 		pr_debug("PTI enabled, disabling INVLPGB\n");
 		setup_clear_cpu_cap(X86_FEATURE_INVLPGB);
+	}
+
+	if (cpu_feature_enabled(X86_FEATURE_FRED)) {
+		pr_debug("PTI enabled, disabling FRED\n");
+		setup_clear_cpu_cap(X86_FEATURE_FRED);
 	}
 }
 

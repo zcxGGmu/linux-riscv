@@ -27,12 +27,12 @@
 
 /*  ====== ODM_ABILITY_E ======== */
 /*  BB ODM section BIT 0-15 */
-#define DYNAMIC_BB_DIG				BIT0 /* ODM_BB_DIG */
-#define DYNAMIC_BB_DYNAMIC_TXPWR	BIT2 /* ODM_BB_DYNAMIC_TXPWR */
-#define DYNAMIC_BB_ANT_DIV			BIT6 /* ODM_BB_ANT_DIV */
+#define DYNAMIC_BB_DIG				BIT(0) /* ODM_BB_DIG */
+#define DYNAMIC_BB_DYNAMIC_TXPWR	BIT(2) /* ODM_BB_DYNAMIC_TXPWR */
+#define DYNAMIC_BB_ANT_DIV			BIT(6) /* ODM_BB_ANT_DIV */
 
 /*  RF ODM section BIT 24-31 */
-#define DYNAMIC_RF_CALIBRATION		BIT26/* ODM_RF_CALIBRATION */
+#define DYNAMIC_RF_CALIBRATION		BIT(26)/* ODM_RF_CALIBRATION */
 
 #define DYNAMIC_ALL_FUNC_ENABLE		0xFFFFFFF
 
@@ -416,15 +416,11 @@ struct mlme_ext_priv {
 	u16  action_public_rxseq;
 
 	u8 active_keep_alive_check;
-#ifdef DBG_FIXED_CHAN
-	u8 fixed_chan;
-#endif
-
 };
 
 void init_mlme_default_rate_set(struct adapter *padapter);
 void init_mlme_ext_priv(struct adapter *padapter);
-int init_hw_mlme_ext(struct adapter *padapter);
+void init_hw_mlme_ext(struct adapter *padapter);
 void free_mlme_ext_priv(struct mlme_ext_priv *pmlmeext);
 extern struct xmit_frame *alloc_mgtxmitframe(struct xmit_priv *pxmitpriv);
 
@@ -615,7 +611,7 @@ extern void process_addba_req(struct adapter *padapter, u8 *paddba_req, u8 *addr
 extern void update_TSF(struct mlme_ext_priv *pmlmeext, u8 *pframe, uint len);
 extern void correct_TSF(struct adapter *padapter, struct mlme_ext_priv *pmlmeext);
 extern void adaptive_early_32k(struct mlme_ext_priv *pmlmeext, u8 *pframe, uint len);
-extern u8 traffic_status_watchdog(struct adapter *padapter, u8 from_timer);
+extern bool traffic_status_watchdog(struct adapter *padapter, bool from_timer);
 
 int rtw_chk_start_clnt_join(struct adapter *padapter, u8 *ch, u8 *bw, u8 *offset);
 
@@ -708,10 +704,5 @@ enum {
 	GEN_EVT_CODE(_WMM),					/*25*/
 	MAX_C2HEVT
 };
-
-
-#ifdef _RTW_MLME_EXT_C_
-
-#endif/* _RTL8192C_CMD_C_ */
 
 #endif

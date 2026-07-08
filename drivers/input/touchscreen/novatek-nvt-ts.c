@@ -170,10 +170,10 @@ static int nvt_ts_suspend(struct device *dev)
 {
 	struct nvt_ts_data *data = i2c_get_clientdata(to_i2c_client(dev));
 
-	mutex_lock(&data->input->mutex);
+	guard(mutex)(&data->input->mutex);
+
 	if (input_device_enabled(data->input))
 		nvt_ts_stop(data->input);
-	mutex_unlock(&data->input->mutex);
 
 	return 0;
 }
@@ -182,10 +182,10 @@ static int nvt_ts_resume(struct device *dev)
 {
 	struct nvt_ts_data *data = i2c_get_clientdata(to_i2c_client(dev));
 
-	mutex_lock(&data->input->mutex);
+	guard(mutex)(&data->input->mutex);
+
 	if (input_device_enabled(data->input))
 		nvt_ts_start(data->input);
-	mutex_unlock(&data->input->mutex);
 
 	return 0;
 }
@@ -326,8 +326,8 @@ static const struct of_device_id nvt_ts_of_match[] = {
 MODULE_DEVICE_TABLE(of, nvt_ts_of_match);
 
 static const struct i2c_device_id nvt_ts_i2c_id[] = {
-	{ "nt11205-ts", (unsigned long) &nvt_nt11205_ts_data },
-	{ "nt36672a-ts", (unsigned long) &nvt_nt36672a_ts_data },
+	{ .name = "nt11205-ts", .driver_data = (unsigned long)&nvt_nt11205_ts_data },
+	{ .name = "nt36672a-ts", .driver_data = (unsigned long)&nvt_nt36672a_ts_data },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, nvt_ts_i2c_id);

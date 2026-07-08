@@ -7,7 +7,6 @@
 #include <linux/delay.h>
 #include <linux/module.h>
 #include <linux/property.h>
-#include <linux/mod_devicetable.h>
 #include <linux/gpio/consumer.h>
 #include <linux/regulator/consumer.h>
 
@@ -375,6 +374,8 @@ static int visionox_rm69299_probe(struct mipi_dsi_device *dsi)
 		dev_err(dev, "cannot get reset gpio %ld\n", PTR_ERR(ctx->reset_gpio));
 		return PTR_ERR(ctx->reset_gpio);
 	}
+
+	ctx->panel.prepare_prev_first = true;
 
 	ctx->panel.backlight = visionox_rm69299_create_backlight(ctx);
 	if (IS_ERR(ctx->panel.backlight))

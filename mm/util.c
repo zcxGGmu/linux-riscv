@@ -1192,6 +1192,7 @@ void compat_set_desc_from_vma(struct vm_area_desc *desc,
 	desc->vm_file = vma->vm_file;
 	desc->vma_flags = vma->flags;
 	desc->page_prot = vma->vm_page_prot;
+	desc->vm_ops = vma->vm_ops;
 
 	/* Default. */
 	desc->action.type = MMAP_NOTHING;
@@ -1232,7 +1233,7 @@ int __compat_vma_mmap(struct vm_area_desc *desc,
 	/* Update the VMA from the descriptor. */
 	compat_set_vma_from_desc(vma, desc);
 	/* Complete any specified mmap actions. */
-	return mmap_action_complete(vma, &desc->action);
+	return mmap_action_complete(vma, &desc->action, /*is_compat=*/true);
 }
 EXPORT_SYMBOL(__compat_vma_mmap);
 
@@ -1280,16 +1281,6 @@ int compat_vma_mmap(struct file *file, struct vm_area_struct *vma)
 	return __compat_vma_mmap(&desc, vma);
 }
 EXPORT_SYMBOL(compat_vma_mmap);
-
-int __vma_check_mmap_hook(struct vm_area_struct *vma)
-{
-	/* vm_ops->mapped is not valid if mmap() is specified. */
-	if (vma->vm_ops && WARN_ON_ONCE(vma->vm_ops->mapped))
-		return -EINVAL;
-
-	return 0;
-}
-EXPORT_SYMBOL(__vma_check_mmap_hook);
 
 static void set_ps_flags(struct page_snapshot *ps, const struct folio *folio,
 			 const struct page *page)
@@ -1399,19 +1390,22 @@ static int call_vma_mapped(struct vm_area_struct *vma)
 }
 
 static int mmap_action_finish(struct vm_area_struct *vma,
-			      struct mmap_action *action, int err)
+			      struct mmap_action *action, int err,
+			      bool is_compat)
 {
 	size_t len;
 
 	if (!err)
 		err = call_vma_mapped(vma);
-	if (!err && action->success_hook)
-		err = action->success_hook(vma);
 
 	/* do_munmap() might take rmap lock, so release if held. */
 	maybe_rmap_unlock_action(vma, action);
-	if (!err)
-		return 0;
+	/*
+	 * If this is invoked from the compatibility layer, post-mmap() hook
+	 * logic will handle cleanup for us.
+	 */
+	if (!err || is_compat)
+		return err;
 
 	/*
 	 * If an error occurs, unmap the VMA altogether and return an error. We
@@ -1420,16 +1414,22 @@ static int mmap_action_finish(struct vm_area_struct *vma,
 	 */
 	len = vma_pages(vma) << PAGE_SHIFT;
 	do_munmap(current->mm, vma->vm_start, len, NULL);
-	if (action->error_hook) {
-		/* We may want to filter the error. */
-		err = action->error_hook(err);
-		/* The caller should not clear the error. */
-		VM_WARN_ON_ONCE(!err);
-	}
-	return err;
+
+	return action->error_override ?: err;
 }
 
 #ifdef CONFIG_MMU
+
+static int check_mmap_action(struct mmap_action *action)
+{
+	const unsigned long override = action->error_override;
+
+	if (WARN_ON_ONCE(override && !IS_ERR_VALUE(override)))
+		return -EINVAL;
+
+	return 0;
+}
+
 /**
  * mmap_action_prepare - Perform preparatory setup for an VMA descriptor
  * action which need to be performed.
@@ -1439,7 +1439,14 @@ static int mmap_action_finish(struct vm_area_struct *vma,
  */
 int mmap_action_prepare(struct vm_area_desc *desc)
 {
-	switch (desc->action.type) {
+	struct mmap_action *action = &desc->action;
+	int err;
+
+	err = check_mmap_action(action);
+	if (err)
+		return err;
+
+	switch (action->type) {
 	case MMAP_NOTHING:
 		return 0;
 	case MMAP_REMAP_PFN:
@@ -1461,13 +1468,15 @@ EXPORT_SYMBOL(mmap_action_prepare);
  * mmap_action_complete - Execute VMA descriptor action.
  * @vma: The VMA to perform the action upon.
  * @action: The action to perform.
+ * @is_compat: Is this being invoked from the compatibility layer?
  *
  * Similar to mmap_action_prepare().
  *
- * Return: 0 on success, or error, at which point the VMA will be unmapped.
+ * Return: 0 on success, or error, at which point the VMA will be unmapped if
+ * !@is_compat.
  */
 int mmap_action_complete(struct vm_area_struct *vma,
-			 struct mmap_action *action)
+			 struct mmap_action *action, bool is_compat)
 {
 	int err = 0;
 
@@ -1488,7 +1497,7 @@ int mmap_action_complete(struct vm_area_struct *vma,
 		break;
 	}
 
-	return mmap_action_finish(vma, action, err);
+	return mmap_action_finish(vma, action, err, is_compat);
 }
 EXPORT_SYMBOL(mmap_action_complete);
 #else
@@ -1510,7 +1519,8 @@ int mmap_action_prepare(struct vm_area_desc *desc)
 EXPORT_SYMBOL(mmap_action_prepare);
 
 int mmap_action_complete(struct vm_area_struct *vma,
-			 struct mmap_action *action)
+			 struct mmap_action *action,
+			 bool is_compat)
 {
 	int err = 0;
 
@@ -1527,7 +1537,7 @@ int mmap_action_complete(struct vm_area_struct *vma,
 		break;
 	}
 
-	return mmap_action_finish(vma, action, err);
+	return mmap_action_finish(vma, action, err, is_compat);
 }
 EXPORT_SYMBOL(mmap_action_complete);
 #endif

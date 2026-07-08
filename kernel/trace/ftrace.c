@@ -1198,8 +1198,7 @@ ftrace_lookup_ip(struct ftrace_hash *hash, unsigned long ip)
 	return __ftrace_lookup_ip(hash, ip);
 }
 
-static void __add_hash_entry(struct ftrace_hash *hash,
-			     struct ftrace_func_entry *entry)
+void add_ftrace_hash_entry(struct ftrace_hash *hash, struct ftrace_func_entry *entry)
 {
 	struct hlist_head *hhd;
 	unsigned long key;
@@ -1221,7 +1220,7 @@ add_ftrace_hash_entry_direct(struct ftrace_hash *hash, unsigned long ip, unsigne
 
 	entry->ip = ip;
 	entry->direct = direct;
-	__add_hash_entry(hash, entry);
+	add_ftrace_hash_entry(hash, entry);
 
 	return entry;
 }
@@ -1247,6 +1246,25 @@ remove_hash_entry(struct ftrace_hash *hash,
 {
 	hlist_del_rcu(&entry->hlist);
 	hash->count--;
+}
+
+void ftrace_hash_remove(struct ftrace_hash *hash)
+{
+	struct ftrace_func_entry *entry;
+	struct hlist_head *hhd;
+	struct hlist_node *tn;
+	int size;
+	int i;
+
+	if (!hash || !hash->count)
+		return;
+	size = 1 << hash->size_bits;
+	for (i = 0; i < size; i++) {
+		hhd = &hash->buckets[i];
+		hlist_for_each_entry_safe(entry, tn, hhd, hlist)
+			remove_hash_entry(hash, entry);
+	}
+	FTRACE_WARN_ON(hash->count);
 }
 
 static void ftrace_hash_clear(struct ftrace_hash *hash)
@@ -1458,7 +1476,7 @@ static struct ftrace_hash *__move_hash(struct ftrace_hash *src, int size)
 		hhd = &src->buckets[i];
 		hlist_for_each_entry_safe(entry, tn, hhd, hlist) {
 			remove_hash_entry(src, entry);
-			__add_hash_entry(new_hash, entry);
+			add_ftrace_hash_entry(new_hash, entry);
 		}
 	}
 	return new_hash;
@@ -5341,7 +5359,7 @@ int ftrace_func_mapper_add_ip(struct ftrace_func_mapper *mapper,
 	map->entry.ip = ip;
 	map->data = data;
 
-	__add_hash_entry(&mapper->hash, &map->entry);
+	add_ftrace_hash_entry(&mapper->hash, &map->entry);
 
 	return 0;
 }
@@ -6288,9 +6306,14 @@ int modify_ftrace_direct(struct ftrace_ops *ops, unsigned long addr)
 }
 EXPORT_SYMBOL_GPL(modify_ftrace_direct);
 
-static unsigned long hash_count(struct ftrace_hash *hash)
+static inline unsigned long hash_count(struct ftrace_hash *hash)
 {
 	return hash ? hash->count : 0;
+}
+
+unsigned long ftrace_hash_count(struct ftrace_hash *hash)
+{
+	return hash_count(hash);
 }
 
 /**
@@ -6841,7 +6864,8 @@ bool ftrace_filter_param __initdata;
 static int __init set_ftrace_notrace(char *str)
 {
 	ftrace_filter_param = true;
-	strscpy(ftrace_notrace_buf, str, FTRACE_FILTER_SIZE);
+	trace_append_boot_param(ftrace_notrace_buf, str, ',',
+				FTRACE_FILTER_SIZE);
 	return 1;
 }
 __setup("ftrace_notrace=", set_ftrace_notrace);
@@ -6849,7 +6873,8 @@ __setup("ftrace_notrace=", set_ftrace_notrace);
 static int __init set_ftrace_filter(char *str)
 {
 	ftrace_filter_param = true;
-	strscpy(ftrace_filter_buf, str, FTRACE_FILTER_SIZE);
+	trace_append_boot_param(ftrace_filter_buf, str, ',',
+				FTRACE_FILTER_SIZE);
 	return 1;
 }
 __setup("ftrace_filter=", set_ftrace_filter);
@@ -6861,14 +6886,16 @@ static int ftrace_graph_set_hash(struct ftrace_hash *hash, char *buffer);
 
 static int __init set_graph_function(char *str)
 {
-	strscpy(ftrace_graph_buf, str, FTRACE_FILTER_SIZE);
+	trace_append_boot_param(ftrace_graph_buf, str, ',',
+				FTRACE_FILTER_SIZE);
 	return 1;
 }
 __setup("ftrace_graph_filter=", set_graph_function);
 
 static int __init set_graph_notrace_function(char *str)
 {
-	strscpy(ftrace_graph_notrace_buf, str, FTRACE_FILTER_SIZE);
+	trace_append_boot_param(ftrace_graph_notrace_buf, str, ',',
+				FTRACE_FILTER_SIZE);
 	return 1;
 }
 __setup("ftrace_graph_notrace=", set_graph_notrace_function);

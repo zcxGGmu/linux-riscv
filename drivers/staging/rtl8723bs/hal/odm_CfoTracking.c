@@ -47,8 +47,8 @@ static void odm_SetATCStatus(void *pDM_VOID, bool ATCStatus)
 
 	PHY_SetBBReg(
 		pDM_Odm->Adapter,
-		ODM_REG(BB_ATC, pDM_Odm),
-		ODM_BIT(BB_ATC, pDM_Odm),
+		ODM_REG(BB_ATC),
+		ODM_BIT(BB_ATC),
 		ATCStatus
 	);
 	pCfoTrack->bATCStatus = ATCStatus;
@@ -61,8 +61,8 @@ static bool odm_GetATCStatus(void *pDM_VOID)
 
 	ATCStatus = (bool)PHY_QueryBBReg(
 		pDM_Odm->Adapter,
-		ODM_REG(BB_ATC, pDM_Odm),
-		ODM_BIT(BB_ATC, pDM_Odm)
+		ODM_REG(BB_ATC),
+		ODM_BIT(BB_ATC)
 	);
 	return ATCStatus;
 }
@@ -138,7 +138,7 @@ void ODM_CfoTracking(void *pDM_VOID)
 		pCfoTrack->CFO_ave_pre = CFO_ave;
 
 		/* 4 1.4 Dynamic Xtal threshold */
-		if (pCfoTrack->bAdjust == false) {
+		if (!pCfoTrack->bAdjust) {
 			if (CFO_ave > CFO_TH_XTAL_HIGH || CFO_ave < (-CFO_TH_XTAL_HIGH))
 				pCfoTrack->bAdjust = true;
 		} else {

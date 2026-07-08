@@ -4,7 +4,6 @@
  */
 
 #include <linux/clk-provider.h>
-#include <linux/mod_devicetable.h>
 #include <linux/module.h>
 #include <linux/platform_device.h>
 #include <linux/regmap.h>
@@ -2915,7 +2914,7 @@ static struct clk_alpha_pll *cam_cc_sm8450_plls[] = {
 	&cam_cc_pll8,
 };
 
-static u32 cam_cc_sm8450_critical_cbcrs[] = {
+static const u32 cam_cc_sm8450_critical_cbcrs[] = {
 	0x1320c, /* CAM_CC_GDSC_CLK */
 };
 
@@ -3030,7 +3029,7 @@ static struct gdsc *cam_cc_sm8450_gdscs[] = {
 	[TITAN_TOP_GDSC] = &titan_top_gdsc,
 };
 
-static struct qcom_cc_driver_data cam_cc_sm8450_driver_data = {
+static const struct qcom_cc_driver_data cam_cc_sm8450_driver_data = {
 	.alpha_plls = cam_cc_sm8450_plls,
 	.num_alpha_plls = ARRAY_SIZE(cam_cc_sm8450_plls),
 	.clk_cbcrs = cam_cc_sm8450_critical_cbcrs,

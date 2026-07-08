@@ -6,12 +6,15 @@
  *
  *    Author(s): David Hildenbrand <dahi@linux.vnet.ibm.com>
  */
+#include <linux/align.h>
 #include <linux/vmalloc.h>
 #include <linux/kvm_host.h>
 #include <linux/bug.h>
+#include <linux/compiler.h>
 #include <linux/list.h>
 #include <linux/bitmap.h>
 #include <linux/sched/signal.h>
+#include <linux/stddef.h>
 #include <linux/io.h>
 #include <linux/mman.h>
 
@@ -62,9 +65,9 @@ struct vsie_page {
 	gpa_t scb_gpa;				/* 0x0258 */
 	/* the shadow gmap in use by the vsie_page */
 	struct gmap_cache gmap_cache;		/* 0x0260 */
-	__u8 reserved[0x0700 - 0x0278];		/* 0x0278 */
-	struct kvm_s390_crypto_cb crycb;	/* 0x0700 */
-	__u8 fac[S390_ARCH_FAC_LIST_SIZE_BYTE];	/* 0x0800 */
+	__u8 reserved[0x06f8 - 0x0278];		/* 0x0278 */
+	struct kvm_s390_crypto_cb crycb;	/* 0x06f8 */
+	__u8 fac[8 + S390_ARCH_FAC_LIST_SIZE_BYTE];/* 0x07f8 */
 };
 
 static_assert(sizeof(struct vsie_page) == PAGE_SIZE);
@@ -125,8 +128,8 @@ static int prepare_cpuflags(struct kvm_vcpu *vcpu, struct vsie_page *vsie_page)
 	struct kvm_s390_sie_block *scb_o = vsie_page->scb_o;
 	int newflags, cpuflags = atomic_read(&scb_o->cpuflags);
 
-	/* we don't allow ESA/390 guests */
-	if (!(cpuflags & CPUSTAT_ZARCH))
+	/* we don't allow ESA/390 guests unless explicitly enabled */
+	if (!(cpuflags & CPUSTAT_ZARCH) && !vcpu->kvm->arch.allow_vsie_esamode)
 		return set_validity_icpt(scb_s, 0x0001U);
 
 	if (cpuflags & (CPUSTAT_RRF | CPUSTAT_MCDS))
@@ -135,7 +138,9 @@ static int prepare_cpuflags(struct kvm_vcpu *vcpu, struct vsie_page *vsie_page)
 		return set_validity_icpt(scb_s, 0x0007U);
 
 	/* intervention requests will be set later */
-	newflags = CPUSTAT_ZARCH;
+	newflags = 0;
+	if (cpuflags & CPUSTAT_ZARCH)
+		newflags = CPUSTAT_ZARCH;
 	if (cpuflags & CPUSTAT_GED && test_kvm_facility(vcpu->kvm, 8))
 		newflags |= CPUSTAT_GED;
 	if (cpuflags & CPUSTAT_GED2 && test_kvm_facility(vcpu->kvm, 78)) {
@@ -385,6 +390,17 @@ end:
 	return 0;
 }
 
+static void shadow_esa(struct kvm_vcpu *vcpu, struct vsie_page *vsie_page)
+{
+	struct kvm_s390_sie_block *scb_s = &vsie_page->scb_s;
+
+	/* Ensure these bits are indeed turned off */
+	scb_s->eca &= ~ECA_VX;
+	scb_s->ecb &= ~(ECB_GS | ECB_TE);
+	scb_s->ecb3 &= ~ECB3_RI;
+	scb_s->ecd &= ~ECD_HOSTREGMGMT;
+}
+
 /* shadow (round up/down) the ibc to avoid validity icpt */
 static void prepare_ibc(struct kvm_vcpu *vcpu, struct vsie_page *vsie_page)
 {
@@ -466,7 +482,7 @@ static int shadow_scb(struct kvm_vcpu *vcpu, struct vsie_page *vsie_page)
 	struct kvm_s390_sie_block *scb_s = &vsie_page->scb_s;
 	/* READ_ONCE does not work on bitfields - use a temporary variable */
 	const uint32_t __new_prefix = scb_o->prefix;
-	const uint32_t new_prefix = READ_ONCE(__new_prefix);
+	uint32_t new_prefix = READ_ONCE(__new_prefix);
 	const bool wants_tx = READ_ONCE(scb_o->ecb) & ECB_TE;
 	bool had_tx = scb_s->ecb & ECB_TE;
 	unsigned long new_mso = 0;
@@ -513,6 +529,11 @@ static int shadow_scb(struct kvm_vcpu *vcpu, struct vsie_page *vsie_page)
 		scb_s->ictl |= ICTL_ISKE | ICTL_SSKE | ICTL_RRBE;
 
 	scb_s->icpua = scb_o->icpua;
+
+	if (!(atomic_read(&scb_s->cpuflags) & CPUSTAT_ZARCH))
+		new_prefix &= GUEST_PREFIX_MASK_ESA;
+	else
+		new_prefix &= GUEST_PREFIX_MASK_ZARCH;
 
 	if (!(atomic_read(&scb_s->cpuflags) & CPUSTAT_SM))
 		new_mso = READ_ONCE(scb_o->mso) & 0xfffffffffff00000UL;
@@ -587,6 +608,9 @@ static int shadow_scb(struct kvm_vcpu *vcpu, struct vsie_page *vsie_page)
 
 	scb_s->hpid = HPID_VSIE;
 	scb_s->cpnc = scb_o->cpnc;
+
+	if (!(atomic_read(&scb_s->cpuflags) & CPUSTAT_ZARCH))
+		shadow_esa(vcpu, vsie_page);
 
 	prepare_ibc(vcpu, vsie_page);
 	rc = shadow_crycb(vcpu, vsie_page);
@@ -979,6 +1003,45 @@ static void retry_vsie_icpt(struct vsie_page *vsie_page)
 	clear_vsie_icpt(vsie_page);
 }
 
+static int handle_stfle_0(struct kvm_vcpu *vcpu, struct vsie_page *vsie_page,
+			  u32 fac_list_origin)
+{
+	struct kvm_s390_sie_block *scb_s = &vsie_page->scb_s;
+
+	/*
+	 * format-0 -> size of nested guest's facility list == guest's size
+	 * guest's size == host's size, since STFLE is interpretatively executed
+	 * using a format-0 for the guest, too.
+	 */
+	if (read_guest_real(vcpu, fac_list_origin, &vsie_page->fac,
+			    stfle_size() * sizeof(u64)))
+		return set_validity_icpt(scb_s, 0x1090U);
+	scb_s->fac = (u32)virt_to_phys(&vsie_page->fac);
+	return 0;
+}
+
+static int handle_stfle_2(struct kvm_vcpu *vcpu, struct vsie_page *vsie_page, u32 fac_list_origin)
+{
+	struct kvm_s390_flcb2 *flcb_s = (struct kvm_s390_flcb2 *)vsie_page->fac;
+	struct kvm_s390_sie_block *scb_s = &vsie_page->scb_s;
+	u64 len;
+
+	if (read_guest_real(vcpu, fac_list_origin, &len, sizeof(len)))
+		return set_validity_icpt(scb_s, 0x1090U);
+
+	/* discard reserved bits */
+	len = (len & U8_MAX);
+	flcb_s->header_val = len;
+	len += 1;
+
+	if (read_guest_real(vcpu, fac_list_origin + offsetof(struct kvm_s390_flcb2, facilities),
+			    &flcb_s->facilities, len * sizeof(u64)))
+		return set_validity_icpt(scb_s, 0x1090U);
+
+	scb_s->fac = (u32)virt_to_phys(&vsie_page->fac) | S390_ARCH_FAC_FORMAT_2;
+	return 0;
+}
+
 /*
  * Try to shadow + enable the guest 2 provided facility list.
  * Retry instruction execution if enabled for and provided by guest 2.
@@ -988,29 +1051,34 @@ static void retry_vsie_icpt(struct vsie_page *vsie_page)
  */
 static int handle_stfle(struct kvm_vcpu *vcpu, struct vsie_page *vsie_page)
 {
-	struct kvm_s390_sie_block *scb_s = &vsie_page->scb_s;
-	__u32 fac = READ_ONCE(vsie_page->scb_o->fac);
+	bool has_astfleie2 = test_kvm_cpu_feat(vcpu->kvm, KVM_S390_VM_CPU_FEAT_ASTFLEIE2);
+	u32 fac = READ_ONCE(vsie_page->scb_o->fac);
+	int format_mask, format;
+	u32 origin;
 
-	/*
-	 * Alternate-STFLE-Interpretive-Execution facilities are not supported
-	 * -> format-0 flcb
-	 */
+	/* assert no overflow with maximum len */
+	BUILD_BUG_ON(sizeof(vsie_page->fac) < ((S390_ARCH_FAC_LIST_SIZE_U64 + 1) * sizeof(u64)));
+	BUILD_BUG_ON(!IS_ALIGNED(offsetof(struct vsie_page, fac), 8));
+
 	if (fac && test_kvm_facility(vcpu->kvm, 7)) {
 		retry_vsie_icpt(vsie_page);
 		/*
 		 * The facility list origin (FLO) is in bits 1 - 28 of the FLD
 		 * so we need to mask here before reading.
 		 */
-		fac = fac & 0x7ffffff8U;
-		/*
-		 * format-0 -> size of nested guest's facility list == guest's size
-		 * guest's size == host's size, since STFLE is interpretatively executed
-		 * using a format-0 for the guest, too.
-		 */
-		if (read_guest_real(vcpu, fac, &vsie_page->fac,
-				    stfle_size() * sizeof(u64)))
-			return set_validity_icpt(scb_s, 0x1090U);
-		scb_s->fac = (u32)virt_to_phys(&vsie_page->fac);
+		origin = fac & 0x7ffffff8U;
+		format_mask = has_astfleie2 ? 3 : 0;
+		format = fac & format_mask;
+		switch (format) {
+		case 0:
+			return handle_stfle_0(vcpu, vsie_page, origin);
+		case 1:
+			return set_validity_icpt(&vsie_page->scb_s, 0x1330U);
+		case 2:
+			return handle_stfle_2(vcpu, vsie_page, origin);
+		case 3:
+			return set_validity_icpt(&vsie_page->scb_s, 0x1330U);
+		}
 	}
 	return 0;
 }

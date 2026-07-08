@@ -17,6 +17,7 @@
 #include <linux/dcache.h>
 #include <linux/socket.h>
 #include <linux/in.h>
+#include <linux/in6.h>
 
 #include <linux/gfp.h>
 #include <linux/mm.h>
@@ -318,7 +319,27 @@ symbol_ptr(struct kunit *kunittest)
 static void
 kernel_ptr(struct kunit *kunittest)
 {
-	/* We can't test this without access to kptr_restrict. */
+	switch (kptr_restrict) {
+	case 0:
+		if (no_hash_pointers) {
+			test(PTR_STR, "%pK", PTR);
+		} else {
+			char buf[PLAIN_BUF_SIZE];
+
+			plain_hash_to_buffer(kunittest, PTR, buf, PLAIN_BUF_SIZE);
+			/* %pK behaves the same as hashing */
+			test(buf, "%pK", PTR);
+		}
+		break;
+	case 1:
+		/* The KUnit kthread has all capabilities, including CAP_SYSLOG */
+		test(PTR_STR, "%pK", PTR);
+		break;
+	case 2:
+	default:
+		test(ZEROS "00000000", "%pK", PTR);
+		break;
+	}
 }
 
 static void
@@ -414,8 +435,10 @@ mac(struct kunit *kunittest)
 
 	test("2d:48:d6:fc:7a:05", "%pM", addr);
 	test("05:7a:fc:d6:48:2d", "%pMR", addr);
+	test("05:7A:FC:D6:48:2D", "%pMRU", addr);
 	test("2d-48-d6-fc-7a-05", "%pMF", addr);
 	test("2d48d6fc7a05", "%pm", addr);
+	test("2D48D6FC7A05", "%pmU", addr);
 	test("057afcd6482d", "%pmR", addr);
 }
 
@@ -437,6 +460,27 @@ ip4(struct kunit *kunittest)
 static void
 ip6(struct kunit *kunittest)
 {
+	const struct in6_addr addr = {
+		.s6_addr = { 0x00, 0x01, 0x00, 0x02, 0x00, 0x03, 0x00, 0x04,
+			     0x00, 0x05, 0x00, 0x06, 0x00, 0x07, 0x00, 0x08 }
+	};
+	const struct in6_addr single_zero = {
+		.s6_addr = { 0x00, 0x01, 0x00, 0x00, 0x00, 0x03, 0x00, 0x04,
+			     0x00, 0x05, 0x00, 0x06, 0x00, 0x07, 0x00, 0x08 }
+	};
+	struct sockaddr_in6 sa = {
+		.sin6_family = AF_INET6,
+		.sin6_port = cpu_to_be16(12345),
+		.sin6_addr = addr,
+	};
+
+	test("00010002000300040005000600070008|0001:0002:0003:0004:0005:0006:0007:0008",
+	     "%pi6|%pI6", &addr, &addr);
+	test("00010002000300040005000600070008|0001:0002:0003:0004:0005:0006:0007:0008",
+	     "%piS|%pIS", &sa, &sa);
+	test("1:2:3:4:5:6:7:8", "%pI6c", &addr);
+	test("1:0:3:4:5:6:7:8", "%pI6c", &single_zero);
+	test("[1:2:3:4:5:6:7:8]:12345", "%pISpc", &sa);
 }
 
 static void

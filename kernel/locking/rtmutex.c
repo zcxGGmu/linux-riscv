@@ -484,6 +484,7 @@ static __always_inline bool __waiter_less(struct rb_node *a, const struct rb_nod
 
 static __always_inline void
 rt_mutex_enqueue(struct rt_mutex_base *lock, struct rt_mutex_waiter *waiter)
+	__must_hold(&lock->wait_lock)
 {
 	lockdep_assert_held(&lock->wait_lock);
 
@@ -492,6 +493,7 @@ rt_mutex_enqueue(struct rt_mutex_base *lock, struct rt_mutex_waiter *waiter)
 
 static __always_inline void
 rt_mutex_dequeue(struct rt_mutex_base *lock, struct rt_mutex_waiter *waiter)
+	__must_hold(&lock->wait_lock)
 {
 	lockdep_assert_held(&lock->wait_lock);
 
@@ -1092,6 +1094,7 @@ static int __sched rt_mutex_adjust_prio_chain(struct task_struct *task,
 static int __sched
 try_to_take_rt_mutex(struct rt_mutex_base *lock, struct task_struct *task,
 		     struct rt_mutex_waiter *waiter)
+	__must_hold(&lock->wait_lock)
 {
 	lockdep_assert_held(&lock->wait_lock);
 
@@ -1319,6 +1322,7 @@ static int __sched task_blocks_on_rt_mutex(struct rt_mutex_base *lock,
  */
 static void __sched mark_wakeup_next_waiter(struct rt_wake_q_head *wqh,
 					    struct rt_mutex_base *lock)
+	__must_hold(&lock->wait_lock)
 {
 	struct rt_mutex_waiter *waiter;
 
@@ -1466,6 +1470,7 @@ static void __sched rt_mutex_slowunlock(struct rt_mutex_base *lock)
 		raw_spin_lock_irqsave(&lock->wait_lock, flags);
 	}
 
+	trace_contended_release(lock);
 	/*
 	 * The wakeup next waiter path does not suffer from the above
 	 * race. See the comments there.
@@ -1544,6 +1549,8 @@ static bool rtmutex_spin_on_owner(struct rt_mutex_base *lock,
  *
  * Must be called with lock->wait_lock held and interrupts disabled. It must
  * have just failed to try_to_take_rt_mutex().
+ *
+ * When invoked from rt_mutex_start_proxy_lock() waiter::task != current !
  */
 static void __sched remove_waiter(struct rt_mutex_base *lock,
 				  struct rt_mutex_waiter *waiter)
@@ -1551,14 +1558,18 @@ static void __sched remove_waiter(struct rt_mutex_base *lock,
 {
 	bool is_top_waiter = (waiter == rt_mutex_top_waiter(lock));
 	struct task_struct *owner = rt_mutex_owner(lock);
+	struct task_struct *waiter_task = waiter->task;
 	struct rt_mutex_base *next_lock;
 
 	lockdep_assert_held(&lock->wait_lock);
 
-	raw_spin_lock(&current->pi_lock);
-	rt_mutex_dequeue(lock, waiter);
-	current->pi_blocked_on = NULL;
-	raw_spin_unlock(&current->pi_lock);
+	if (!waiter_task) /* never enqueued */
+		return;
+
+	scoped_guard(raw_spinlock, &waiter_task->pi_lock) {
+		rt_mutex_dequeue(lock, waiter);
+		waiter_task->pi_blocked_on = NULL;
+	}
 
 	/*
 	 * Only update priority if the waiter was the highest priority
@@ -1594,7 +1605,7 @@ static void __sched remove_waiter(struct rt_mutex_base *lock,
 	raw_spin_unlock_irq(&lock->wait_lock);
 
 	rt_mutex_adjust_prio_chain(owner, RT_MUTEX_MIN_CHAINWALK, lock,
-				   next_lock, NULL, current);
+				   next_lock, NULL, waiter_task);
 
 	raw_spin_lock_irq(&lock->wait_lock);
 }

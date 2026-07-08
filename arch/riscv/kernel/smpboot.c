@@ -189,13 +189,12 @@ int arch_cpuhp_kick_ap_alive(unsigned int cpu, struct task_struct *tidle)
 #else
 int __cpu_up(unsigned int cpu, struct task_struct *tidle)
 {
-	int ret = 0;
+	int ret;
 	tidle->thread_info.cpu = cpu;
 
 	ret = start_secondary_cpu(cpu, tidle);
 	if (!ret) {
-		wait_for_completion_timeout(&cpu_running,
-					    msecs_to_jiffies(1000));
+		wait_for_completion_timeout(&cpu_running, secs_to_jiffies(1));
 
 		if (!cpu_online(cpu)) {
 			pr_crit("CPU%u: failed to come online\n", cpu);
@@ -251,18 +250,14 @@ asmlinkage __visible void smp_callin(void)
 	set_cpu_online(curr_cpuid, true);
 
 	/*
-	 * Remote cache and TLB flushes are ignored while the CPU is offline,
-	 * so flush them both right now just in case.
+	 * Remote instruction cache and TLB flushes are ignored while the CPU
+	 * is offline, so flush them both right now just in case.
 	 */
 	local_flush_icache_all();
 	local_flush_tlb_all();
 #ifndef CONFIG_HOTPLUG_PARALLEL
 	complete(&cpu_running);
 #endif
-	/*
-	 * Disable preemption before enabling interrupts, so we don't try to
-	 * schedule a CPU that hasn't actually started yet.
-	 */
 	local_irq_enable();
 	cpu_startup_entry(CPUHP_AP_ONLINE_IDLE);
 }

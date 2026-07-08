@@ -314,14 +314,14 @@ static int calc_hem_config(struct hns_roce_dev *hr_dev,
 	bt_num = hns_roce_get_bt_num(table->type, mhop->hop_num);
 	switch (bt_num) {
 	case 3:
-		index->l1 = l0_idx * chunk_ba_num + l1_idx;
+		index->l1 = (u64)l0_idx * chunk_ba_num + l1_idx;
 		index->l0 = l0_idx;
-		index->buf = l0_idx * chunk_ba_num * chunk_ba_num +
-			     l1_idx * chunk_ba_num + l2_idx;
+		index->buf = (u64)l0_idx * chunk_ba_num * chunk_ba_num +
+					 (u64)l1_idx * chunk_ba_num + l2_idx;
 		break;
 	case 2:
 		index->l0 = l0_idx;
-		index->buf = l0_idx * chunk_ba_num + l1_idx;
+		index->buf = (u64)l0_idx * chunk_ba_num + l1_idx;
 		break;
 	case 1:
 		index->buf = l0_idx;
@@ -771,9 +771,7 @@ int hns_roce_init_hem_table(struct hns_roce_dev *hr_dev,
 			unsigned long num_bt_l1;
 
 			num_bt_l1 = DIV_ROUND_UP(num_hem, bt_chunk_num);
-			table->bt_l1 = kcalloc(num_bt_l1,
-					       sizeof(*table->bt_l1),
-					       GFP_KERNEL);
+			table->bt_l1 = kzalloc_objs(*table->bt_l1, num_bt_l1);
 			if (!table->bt_l1)
 				goto err_kcalloc_bt_l1;
 
@@ -786,8 +784,7 @@ int hns_roce_init_hem_table(struct hns_roce_dev *hr_dev,
 
 		if (check_whether_bt_num_2(type, hop_num) ||
 			check_whether_bt_num_3(type, hop_num)) {
-			table->bt_l0 = kcalloc(num_bt_l0, sizeof(*table->bt_l0),
-					       GFP_KERNEL);
+			table->bt_l0 = kzalloc_objs(*table->bt_l0, num_bt_l0);
 			if (!table->bt_l0)
 				goto err_kcalloc_bt_l0;
 
@@ -1272,8 +1269,6 @@ setup_root_hem(struct hns_roce_dev *hr_dev, struct hns_roce_hem_list *hem_list,
 
 	root_hem = list_first_entry(&head->root,
 				    struct hns_roce_hem_item, list);
-	if (!root_hem)
-		return -ENOMEM;
 
 	total = 0;
 	for (i = 0; i < region_cnt && total <= max_ba_num; i++) {

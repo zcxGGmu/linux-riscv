@@ -261,7 +261,6 @@ source "net/bridge/Kconfig"
 source "net/dsa/Kconfig"
 source "net/8021q/Kconfig"
 source "net/llc/Kconfig"
-source "net/appletalk/Kconfig"
 source "net/x25/Kconfig"
 source "net/lapb/Kconfig"
 source "net/phonet/Kconfig"
@@ -414,7 +413,6 @@ endmenu # Network testing
 
 endmenu # Networking options
 
-source "net/ax25/Kconfig"
 source "net/can/Kconfig"
 source "net/bluetooth/Kconfig"
 source "net/rxrpc/Kconfig"
@@ -439,7 +437,6 @@ endif # WIRELESS
 
 source "net/rfkill/Kconfig"
 source "net/9p/Kconfig"
-source "net/caif/Kconfig"
 source "net/ceph/Kconfig"
 source "net/nfc/Kconfig"
 source "net/psample/Kconfig"

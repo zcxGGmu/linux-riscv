@@ -4,11 +4,8 @@
  */
 
 #include <linux/clk-provider.h>
-#include <linux/mod_devicetable.h>
 #include <linux/module.h>
-#include <linux/of.h>
 #include <linux/platform_device.h>
-#include <linux/pm_runtime.h>
 #include <linux/regmap.h>
 
 #include <dt-bindings/clock/qcom,kaanapali-dispcc.h>
@@ -800,7 +797,6 @@ static struct clk_regmap_div disp_cc_mdss_byte0_div_clk_src = {
 			&disp_cc_mdss_byte0_clk_src.clkr.hw,
 		},
 		.num_parents = 1,
-		.flags = CLK_SET_RATE_PARENT,
 		.ops = &clk_regmap_div_ops,
 	},
 };
@@ -815,7 +811,6 @@ static struct clk_regmap_div disp_cc_mdss_byte1_div_clk_src = {
 			&disp_cc_mdss_byte1_clk_src.clkr.hw,
 		},
 		.num_parents = 1,
-		.flags = CLK_SET_RATE_PARENT,
 		.ops = &clk_regmap_div_ops,
 	},
 };
@@ -1890,7 +1885,7 @@ static struct clk_alpha_pll *disp_cc_kaanapali_plls[] = {
 	&disp_cc_pll2,
 };
 
-static u32 disp_cc_kaanapali_critical_cbcrs[] = {
+static const u32 disp_cc_kaanapali_critical_cbcrs[] = {
 	0xe064, /* DISP_CC_SLEEP_CLK */
 	0xe05c, /* DISP_CC_XO_CLK */
 	0xc00c, /* DISP_CC_MDSS_RSCC_AHB_CLK */
@@ -1911,7 +1906,7 @@ static void clk_kaanapali_regs_configure(struct device *dev, struct regmap *regm
 	regmap_update_bits(regmap, DISP_CC_MISC_CMD, BIT(4), BIT(4));
 }
 
-static struct qcom_cc_driver_data disp_cc_kaanapali_driver_data = {
+static const struct qcom_cc_driver_data disp_cc_kaanapali_driver_data = {
 	.alpha_plls = disp_cc_kaanapali_plls,
 	.num_alpha_plls = ARRAY_SIZE(disp_cc_kaanapali_plls),
 	.clk_cbcrs = disp_cc_kaanapali_critical_cbcrs,

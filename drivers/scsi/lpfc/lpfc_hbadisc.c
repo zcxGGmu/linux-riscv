@@ -1,7 +1,7 @@
 /*******************************************************************
  * This file is part of the Emulex Linux Device Driver for         *
  * Fibre Channel Host Bus Adapters.                                *
- * Copyright (C) 2017-2025 Broadcom. All Rights Reserved. The term *
+ * Copyright (C) 2017-2026 Broadcom. All Rights Reserved. The term *
  * “Broadcom” refers to Broadcom Inc. and/or its subsidiaries.     *
  * Copyright (C) 2004-2016 Emulex.  All rights reserved.           *
  * EMULEX and SLI are trademarks of Emulex.                        *
@@ -425,7 +425,6 @@ lpfc_check_nlp_post_devloss(struct lpfc_vport *vport,
 {
 	if (test_and_clear_bit(NLP_IN_RECOV_POST_DEV_LOSS, &ndlp->save_flags)) {
 		clear_bit(NLP_DROPPED, &ndlp->nlp_flag);
-		lpfc_nlp_get(ndlp);
 		lpfc_printf_vlog(vport, KERN_INFO, LOG_DISCOVERY | LOG_NODE,
 				 "8438 Devloss timeout reversed on DID x%x "
 				 "refcnt %d ndlp %p flag x%lx "
@@ -1846,7 +1845,7 @@ lpfc_copy_fcf_record(struct lpfc_fcf_rec *fcf_rec,
  * @flag: flag bits to be set to the driver fcf record.
  *
  * This routine updates the driver FCF record from the new HBA FCF record
- * together with the address mode, vlan_id, and other informations. This
+ * together with the address mode, vlan_id, and other information. This
  * routine is called with the hbalock held.
  **/
 static void
@@ -2121,7 +2120,7 @@ lpfc_match_fcf_conn_list(struct lpfc_hba *phba,
 /**
  * lpfc_check_pending_fcoe_event - Check if there is pending fcoe event.
  * @phba: pointer to lpfc hba data structure.
- * @unreg_fcf: Unregister FCF if FCF table need to be re-scaned.
+ * @unreg_fcf: Unregister FCF if FCF table need to be re-scanned.
  *
  * This function check if there is any fcoe event pending while driver
  * scan FCF entries. If there is any pending event, it will restart the
@@ -2291,7 +2290,7 @@ lpfc_sli4_fcf_rec_mbox_parse(struct lpfc_hba *phba, LPFC_MBOXQ_t *mboxq,
  * @vlan_id: the lowest vlan identifier associated to this fcf record.
  * @next_fcf_index: the index to the next fcf record in hba's fcf table.
  *
- * This routine logs the detailed FCF record if the LOG_FIP loggin is
+ * This routine logs the detailed FCF record if the LOG_FIP login is
  * enabled.
  **/
 static void
@@ -3174,7 +3173,11 @@ lpfc_init_vfi_cmpl(struct lpfc_hba *phba, LPFC_MBOXQ_t *mboxq)
 		return;
 	}
 
-	lpfc_initial_flogi(vport);
+	if (!lpfc_initial_flogi(vport)) {
+		lpfc_printf_vlog(vport, KERN_ERR, LOG_MBOX | LOG_ELS,
+				 "2345 Can't issue initial FLOGI\n");
+		lpfc_vport_set_state(vport, FC_VPORT_FAILED);
+	}
 	mempool_free(mboxq, phba->mbox_mem_pool);
 	return;
 }
@@ -3247,8 +3250,14 @@ lpfc_init_vpi_cmpl(struct lpfc_hba *phba, LPFC_MBOXQ_t *mboxq)
 			return;
 	}
 
-	if (phba->link_flag & LS_NPIV_FAB_SUPPORTED)
-		lpfc_initial_fdisc(vport);
+	if (phba->link_flag & LS_NPIV_FAB_SUPPORTED) {
+		if (!lpfc_initial_fdisc(vport)) {
+			lpfc_printf_vlog(vport, KERN_WARNING,
+					 LOG_MBOX | LOG_ELS,
+					 "2346 Can't issue initial FDISC\n");
+			lpfc_vport_set_state(vport, FC_VPORT_FAILED);
+		}
+	}
 	else {
 		lpfc_vport_set_state(vport, FC_VPORT_NO_FABRIC_SUPP);
 		lpfc_printf_vlog(vport, KERN_ERR, LOG_TRACE_EVENT,
@@ -3466,7 +3475,7 @@ lpfc_mbx_cmpl_read_sparam(struct lpfc_hba *phba, LPFC_MBOXQ_t *pmb)
 	phba->fc_edtov = ed_tov;
 	phba->fc_ratov = (2 * ed_tov) / 1000;
 	if (phba->fc_ratov < FF_DEF_RATOV) {
-		/* RA_TOV should be atleast 10sec for initial flogi */
+		/* RA_TOV should be at least 10sec for initial flogi */
 		phba->fc_ratov = FF_DEF_RATOV;
 	}
 
@@ -3808,7 +3817,7 @@ lpfc_mbx_cmpl_read_topology(struct lpfc_hba *phba, LPFC_MBOXQ_t *pmb)
 		if (phba->cmf_active_mode != LPFC_CFG_OFF)
 			lpfc_cmf_signal_init(phba);
 
-		if (phba->lmt & LMT_64Gb)
+		if (phba->lmt & (LMT_64Gb | LMT_128Gb))
 			lpfc_read_lds_params(phba);
 
 	} else if (attn_type == LPFC_ATT_LINK_DOWN ||
@@ -4401,7 +4410,7 @@ out:
 					LOG_INIT | LOG_ELS | LOG_DISCOVERY,
 					"4220 Issue EDC status x%x Data x%x\n",
 					rc, phba->cgn_init_reg_signal);
-		} else if (phba->lmt & LMT_64Gb) {
+		} else if (phba->lmt & (LMT_64Gb | LMT_128Gb)) {
 			/* may send link fault capability descriptor */
 			lpfc_issue_els_edc(vport, 0);
 		} else {
@@ -5228,12 +5237,11 @@ lpfc_set_unreg_login_mbx_cmpl(struct lpfc_hba *phba, struct lpfc_vport *vport,
 
 /*
  * Free rpi associated with LPFC_NODELIST entry.
- * This routine is called from lpfc_freenode(), when we are removing
- * a LPFC_NODELIST entry. It is also called if the driver initiates a
- * LOGO that completes successfully, and we are waiting to PLOGI back
- * to the remote NPort. In addition, it is called after we receive
- * and unsolicated ELS cmd, send back a rsp, the rsp completes and
- * we are waiting to PLOGI back to the remote NPort.
+ * This routine is called if the driver initiates a LOGO that completes
+ * successfully, and we are waiting to PLOGI back to the remote NPort.
+ * In addition, it is called after we receive and unsolicited ELS cmd,
+ * send back a rsp, the rsp completes and we are waiting to PLOGI back
+ * to the remote NPort.
  */
 int
 lpfc_unreg_rpi(struct lpfc_vport *vport, struct lpfc_nodelist *ndlp)
@@ -6543,7 +6551,7 @@ lpfc_nlp_init(struct lpfc_vport *vport, uint32_t did)
 	return ndlp;
 }
 
-/* This routine releases all resources associated with a specifc NPort's ndlp
+/* This routine releases all resources associated with a specific NPort's ndlp
  * and mempool_free's the nodelist.
  */
 static void
@@ -6599,11 +6607,6 @@ lpfc_nlp_get(struct lpfc_nodelist *ndlp)
 	unsigned long flags;
 
 	if (ndlp) {
-		lpfc_debugfs_disc_trc(ndlp->vport, LPFC_DISC_TRC_NODE,
-			"node get:        did:x%x flg:x%lx refcnt:x%x",
-			ndlp->nlp_DID, ndlp->nlp_flag,
-			kref_read(&ndlp->kref));
-
 		/* The check of ndlp usage to prevent incrementing the
 		 * ndlp reference count that is in the process of being
 		 * released.
@@ -6611,9 +6614,8 @@ lpfc_nlp_get(struct lpfc_nodelist *ndlp)
 		spin_lock_irqsave(&ndlp->lock, flags);
 		if (!kref_get_unless_zero(&ndlp->kref)) {
 			spin_unlock_irqrestore(&ndlp->lock, flags);
-			lpfc_printf_vlog(ndlp->vport, KERN_WARNING, LOG_NODE,
-				"0276 %s: ndlp:x%px refcnt:%d\n",
-				__func__, (void *)ndlp, kref_read(&ndlp->kref));
+			pr_info("0276 %s: NDLP x%px has zero reference count. "
+				"Exiting\n", __func__, ndlp);
 			return NULL;
 		}
 		spin_unlock_irqrestore(&ndlp->lock, flags);

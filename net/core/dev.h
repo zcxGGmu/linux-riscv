@@ -78,6 +78,7 @@ void linkwatch_run_queue(void);
 void dev_addr_flush(struct net_device *dev);
 int dev_addr_init(struct net_device *dev);
 void dev_addr_check(struct net_device *dev);
+void __hw_addr_flush(struct netdev_hw_addr_list *list);
 
 #if IS_ENABLED(CONFIG_NET_SHAPER)
 void net_shaper_flush_netdev(struct net_device *dev);
@@ -164,6 +165,20 @@ int netif_change_carrier(struct net_device *dev, bool new_carrier);
 int dev_change_carrier(struct net_device *dev, bool new_carrier);
 
 void __dev_set_rx_mode(struct net_device *dev);
+int __dev_set_promiscuity(struct net_device *dev, int inc, bool notify);
+void netif_rx_mode_init(struct net_device *dev);
+void netif_rx_mode_run(struct net_device *dev);
+void netif_rx_mode_sync(struct net_device *dev);
+void netif_rx_mode_cancel_retry(struct net_device *dev);
+
+/* Events for the async netdev work, tracked in netdev->work_core_pending. */
+enum netdev_work_core {
+	NETDEV_WORK_RX_MODE	= BIT(0),	/* run the rx_mode update */
+};
+
+void __netdev_work_core_sched(struct net_device *dev, unsigned long event);
+unsigned long
+__netdev_work_core_cancel(struct net_device *dev, unsigned long mask);
 
 void __dev_notify_flags(struct net_device *dev, unsigned int old_flags,
 			unsigned int gchanges, u32 portid,
@@ -391,5 +406,11 @@ int dev_set_hwtstamp_phylib(struct net_device *dev,
 int dev_get_hwtstamp_phylib(struct net_device *dev,
 			    struct kernel_hwtstamp_config *cfg);
 int net_hwtstamp_validate(const struct kernel_hwtstamp_config *cfg);
+
+/* Caller holds RTNL, netdev->lock or RCU */
+static inline bool dev_isalive(const struct net_device *dev)
+{
+	return READ_ONCE(dev->reg_state) <= NETREG_REGISTERED;
+}
 
 #endif

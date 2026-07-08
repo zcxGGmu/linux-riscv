@@ -1224,7 +1224,6 @@ static struct file_system_type ocfs2_fs_type = {
 	.name           = "ocfs2",
 	.kill_sb        = kill_block_super,
 	.fs_flags       = FS_REQUIRES_DEV|FS_RENAME_DOES_D_MOVE,
-	.next           = NULL,
 	.init_fs_context = ocfs2_init_fs_context,
 	.parameters	= ocfs2_param_spec,
 };
@@ -1997,8 +1996,6 @@ static int ocfs2_initialize_super(struct super_block *sb,
 	spin_lock_init(&osb->osb_xattr_lock);
 	ocfs2_init_steal_slots(osb);
 
-	mutex_init(&osb->system_file_mutex);
-
 	atomic_set(&osb->alloc_stats.moves, 0);
 	atomic_set(&osb->alloc_stats.local_data, 0);
 	atomic_set(&osb->alloc_stats.bitmap_data, 0);
@@ -2124,7 +2121,7 @@ static int ocfs2_initialize_super(struct super_block *sb,
 		osb->osb_cluster_stack[0] = '\0';
 	}
 
-	get_random_bytes(&osb->s_next_generation, sizeof(u32));
+	osb->s_next_generation = get_random_u32();
 
 	/*
 	 * FIXME

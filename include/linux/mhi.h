@@ -14,6 +14,7 @@
 #include <linux/spinlock.h>
 #include <linux/wait.h>
 #include <linux/workqueue.h>
+#include <linux/device-id/mhi.h>
 
 #define MHI_MAX_OEM_PK_HASH_SEGMENTS 16
 
@@ -86,16 +87,32 @@ enum mhi_ch_type {
 };
 
 /**
+ * struct mhi_buf - MHI Buffer description
+ * @buf: Virtual address of the buffer
+ * @name: Buffer label. For offload channel, configurations name must be:
+ *        ECA - Event context array data
+ *        CCA - Channel context array data
+ * @dma_addr: IOMMU address of the buffer
+ * @len: # of bytes
+ */
+struct mhi_buf {
+	void *buf;
+	const char *name;
+	dma_addr_t dma_addr;
+	size_t len;
+};
+
+/**
  * struct image_info - Firmware and RDDM table
  * @mhi_buf: Buffer for firmware and RDDM table
  * @entries: # of entries in table
  */
 struct image_info {
-	struct mhi_buf *mhi_buf;
 	/* private: from internal.h */
 	struct bhi_vec_entry *bhi_vec;
 	/* public: */
 	u32 entries;
+	struct mhi_buf mhi_buf[] __counted_by(entries);
 };
 
 /**
@@ -486,22 +503,6 @@ struct mhi_result {
 	size_t bytes_xferd;
 	enum dma_data_direction dir;
 	int transaction_status;
-};
-
-/**
- * struct mhi_buf - MHI Buffer description
- * @buf: Virtual address of the buffer
- * @name: Buffer label. For offload channel, configurations name must be:
- *        ECA - Event context array data
- *        CCA - Channel context array data
- * @dma_addr: IOMMU address of the buffer
- * @len: # of bytes
- */
-struct mhi_buf {
-	void *buf;
-	const char *name;
-	dma_addr_t dma_addr;
-	size_t len;
 };
 
 /**

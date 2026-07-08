@@ -1,7 +1,7 @@
 /*******************************************************************
  * This file is part of the Emulex Linux Device Driver for         *
  * Fibre Channel Host Bus Adapters.                                *
- * Copyright (C) 2017-2025 Broadcom. All Rights Reserved. The term *
+ * Copyright (C) 2017-2026 Broadcom. All Rights Reserved. The term *
  * “Broadcom” refers to Broadcom Inc. and/or its subsidiaries.     *
  * Copyright (C) 2004-2016 Emulex.  All rights reserved.           *
  * EMULEX and SLI are trademarks of Emulex.                        *
@@ -136,14 +136,11 @@ void lpfc_wqe_cmd_template(void)
 	bf_set(wqe_dbde, &wqe->fcp_iread.wqe_com, 0);
 	bf_set(wqe_wqes, &wqe->fcp_iread.wqe_com, 1);
 
-	/* Word 11 - pbde is variable */
+	/* Word 11 */
 	bf_set(wqe_cmd_type, &wqe->fcp_iread.wqe_com, COMMAND_DATA_IN);
 	bf_set(wqe_cqid, &wqe->fcp_iread.wqe_com, LPFC_WQE_CQ_ID_DEFAULT);
-	bf_set(wqe_pbde, &wqe->fcp_iread.wqe_com, 0);
 
 	/* Word 12 - is zero */
-
-	/* Word 13, 14, 15 - PBDE is variable */
 
 	/* IWRITE template */
 	wqe = &lpfc_iwrite_cmd_template;
@@ -176,14 +173,11 @@ void lpfc_wqe_cmd_template(void)
 	bf_set(wqe_dbde, &wqe->fcp_iwrite.wqe_com, 0);
 	bf_set(wqe_wqes, &wqe->fcp_iwrite.wqe_com, 1);
 
-	/* Word 11 - pbde is variable */
+	/* Word 11 */
 	bf_set(wqe_cmd_type, &wqe->fcp_iwrite.wqe_com, COMMAND_DATA_OUT);
 	bf_set(wqe_cqid, &wqe->fcp_iwrite.wqe_com, LPFC_WQE_CQ_ID_DEFAULT);
-	bf_set(wqe_pbde, &wqe->fcp_iwrite.wqe_com, 0);
 
 	/* Word 12 - is zero */
-
-	/* Word 13, 14, 15 - PBDE is variable */
 
 	/* ICMND template */
 	wqe = &lpfc_icmnd_cmd_template;
@@ -217,7 +211,6 @@ void lpfc_wqe_cmd_template(void)
 	/* Word 11 */
 	bf_set(wqe_cmd_type, &wqe->fcp_icmd.wqe_com, COMMAND_DATA_IN);
 	bf_set(wqe_cqid, &wqe->fcp_icmd.wqe_com, LPFC_WQE_CQ_ID_DEFAULT);
-	bf_set(wqe_pbde, &wqe->fcp_icmd.wqe_com, 0);
 
 	/* Word 12, 13, 14, 15 - is zero */
 }
@@ -1162,9 +1155,9 @@ lpfc_test_rrq_active(struct lpfc_hba *phba, struct lpfc_nodelist *ndlp,
  *
  * This function takes the hbalock.
  * The active bit is always set in the active rrq xri_bitmap even
- * if there is no slot avaiable for the other rrq information.
+ * if there is no slot available for the other rrq information.
  *
- * returns 0 rrq actived for this xri
+ * returns 0 rrq activated for this xri
  *         < 0 No memory or invalid ndlp.
  **/
 int
@@ -4572,59 +4565,41 @@ void
 lpfc_sli_abort_iocb_ring(struct lpfc_hba *phba, struct lpfc_sli_ring *pring)
 {
 	LIST_HEAD(tx_completions);
-	LIST_HEAD(txcmplq_completions);
+	spinlock_t *plock;		/* for transmit queue access */
 	struct lpfc_iocbq *iocb, *next_iocb;
 	int offline;
 
-	if (pring->ringno == LPFC_ELS_RING) {
+	if (phba->sli_rev >= LPFC_SLI_REV4)
+		plock = &pring->ring_lock;
+	else
+		plock = &phba->hbalock;
+
+	if (pring->ringno == LPFC_ELS_RING)
 		lpfc_fabric_abort_hba(phba);
-	}
+
 	offline = pci_channel_offline(phba->pcidev);
 
-	/* Error everything on txq and txcmplq
-	 * First do the txq.
-	 */
-	if (phba->sli_rev >= LPFC_SLI_REV4) {
-		spin_lock_irq(&pring->ring_lock);
-		list_splice_init(&pring->txq, &tx_completions);
-		pring->txq_cnt = 0;
-
-		if (offline) {
-			list_splice_init(&pring->txcmplq,
-					 &txcmplq_completions);
-		} else {
-			/* Next issue ABTS for everything on the txcmplq */
-			list_for_each_entry_safe(iocb, next_iocb,
-						 &pring->txcmplq, list)
-				lpfc_sli_issue_abort_iotag(phba, pring,
-							   iocb, NULL);
-		}
-		spin_unlock_irq(&pring->ring_lock);
-	} else {
-		spin_lock_irq(&phba->hbalock);
-		list_splice_init(&pring->txq, &tx_completions);
-		pring->txq_cnt = 0;
-
-		if (offline) {
-			list_splice_init(&pring->txcmplq, &txcmplq_completions);
-		} else {
-			/* Next issue ABTS for everything on the txcmplq */
-			list_for_each_entry_safe(iocb, next_iocb,
-						 &pring->txcmplq, list)
-				lpfc_sli_issue_abort_iotag(phba, pring,
-							   iocb, NULL);
-		}
-		spin_unlock_irq(&phba->hbalock);
-	}
+	/* Cancel everything on txq */
+	spin_lock_irq(plock);
+	list_splice_init(&pring->txq, &tx_completions);
+	pring->txq_cnt = 0;
 
 	if (offline) {
-		/* Cancel all the IOCBs from the completions list */
-		lpfc_sli_cancel_iocbs(phba, &txcmplq_completions,
-				      IOSTAT_LOCAL_REJECT, IOERR_SLI_ABORTED);
+		/* Cancel everything on txcmplq */
+		list_for_each_entry_safe(iocb, next_iocb, &pring->txcmplq, list)
+			iocb->cmd_flag &= ~LPFC_IO_ON_TXCMPLQ;
+		list_splice_init(&pring->txcmplq, &tx_completions);
+		pring->txcmplq_cnt = 0;
 	} else {
-		/* Make sure HBA is alive */
-		lpfc_issue_hb_tmo(phba);
+		/* Issue ABTS for everything on the txcmplq */
+		list_for_each_entry_safe(iocb, next_iocb, &pring->txcmplq, list)
+			lpfc_sli_issue_abort_iotag(phba, pring, iocb, NULL);
 	}
+	spin_unlock_irq(plock);
+
+	if (!offline)
+		lpfc_issue_hb_tmo(phba);
+
 	/* Cancel all the IOCBs from the completions list */
 	lpfc_sli_cancel_iocbs(phba, &tx_completions, IOSTAT_LOCAL_REJECT,
 			      IOERR_SLI_ABORTED);
@@ -4852,11 +4827,11 @@ lpfc_sli_brdready_s4(struct lpfc_hba *phba, uint32_t mask)
 }
 
 /**
- * lpfc_sli_brdready - Wrapper func for checking the hba readyness
+ * lpfc_sli_brdready - Wrapper func for checking the hba readiness
  * @phba: Pointer to HBA context object.
  * @mask: Bit mask to be checked.
  *
- * This routine wraps the actual SLI3 or SLI4 hba readyness check routine
+ * This routine wraps the actual SLI3 or SLI4 hba readiness check routine
  * from the API jump table function pointer from the lpfc_hba struct.
  **/
 int
@@ -8537,7 +8512,7 @@ lpfc_sli4_hba_setup(struct lpfc_hba *phba)
 	if (unlikely(rc))
 		return -ENODEV;
 
-	/* Check the HBA Host Status Register for readyness */
+	/* Check the HBA Host Status Register for readiness */
 	rc = lpfc_sli4_post_status_check(phba);
 	if (unlikely(rc))
 		return -ENODEV;
@@ -8748,14 +8723,6 @@ lpfc_sli4_hba_setup(struct lpfc_hba *phba)
 		lpfc_printf_log(phba, KERN_WARNING, LOG_MBOX | LOG_SLI,
 				"0378 No support for fcpi mode.\n");
 		ftr_rsp++;
-	}
-
-	/* Performance Hints are ONLY for FCoE */
-	if (test_bit(HBA_FCOE_MODE, &phba->hba_flag)) {
-		if (bf_get(lpfc_mbx_rq_ftr_rsp_perfh, &mqe->un.req_ftrs))
-			phba->sli3_options |= LPFC_SLI4_PERFH_ENABLED;
-		else
-			phba->sli3_options &= ~LPFC_SLI4_PERFH_ENABLED;
 	}
 
 	/*
@@ -10017,7 +9984,7 @@ lpfc_sli4_post_sync_mbox(struct lpfc_hba *phba, LPFC_MBOXQ_t *mboxq)
 	phba->sli.mbox_active = mboxq;
 	spin_unlock_irqrestore(&phba->hbalock, iflag);
 
-	/* wait for bootstrap mbox register for readyness */
+	/* wait for bootstrap mbox register for readiness */
 	rc = lpfc_sli4_wait_bmbx_ready(phba, mboxq);
 	if (rc)
 		goto exit;
@@ -13988,7 +13955,7 @@ unplug_error:
  * device-level interrupt handler. When the PCI slot is in error recovery
  * or the HBA is undergoing initialization, the interrupt handler will not
  * process the interrupt. The SCSI FCP fast-path ring event are handled in
- * the intrrupt context. This function is called without any lock held.
+ * the interrupt context. This function is called without any lock held.
  * It gets the hbalock to access and update SLI data structures.
  *
  * This function returns IRQ_HANDLED when interrupt is handled else it
@@ -14355,13 +14322,15 @@ lpfc_sli4_sp_handle_mbox_event(struct lpfc_hba *phba, struct lpfc_mcqe *mcqe)
 	/* Get the reference to the active mbox command */
 	spin_lock_irqsave(&phba->hbalock, iflags);
 	pmb = phba->sli.mbox_active;
+	spin_unlock_irqrestore(&phba->hbalock, iflags);
 	if (unlikely(!pmb)) {
 		lpfc_printf_log(phba, KERN_ERR, LOG_TRACE_EVENT,
-				"1832 No pending MBOX command to handle\n");
-		spin_unlock_irqrestore(&phba->hbalock, iflags);
+				"1832 No pending MBOX command to handle, "
+				"mcqe: x%08x x%08x x%08x x%08x\n",
+				mcqe->word0, mcqe->mcqe_tag0,
+				mcqe->mcqe_tag1, mcqe->trailer);
 		goto out_no_mqe_complete;
 	}
-	spin_unlock_irqrestore(&phba->hbalock, iflags);
 	mqe = &pmb->u.mqe;
 	pmbox = (MAILBOX_t *)&pmb->u.mqe;
 	mbox = phba->mbox;
@@ -14736,11 +14705,22 @@ lpfc_sli4_sp_handle_rcqe(struct lpfc_hba *phba, struct lpfc_rcqe *rcqe)
 					atomic_read(&tgtp->rcv_fcp_cmd_out),
 					atomic_read(&tgtp->xmt_fcp_release));
 		}
+		hrq->RQ_discard_frm++;
 		fallthrough;
-
 	case FC_STATUS_INSUFF_BUF_NEED_BUF:
+		/* Unexpected event - bump the counter for support. */
 		hrq->RQ_no_posted_buf++;
-		/* Post more buffers if possible */
+
+		lpfc_log_msg(phba, KERN_WARNING,
+			     LOG_ELS | LOG_DISCOVERY | LOG_SLI,
+			     "6423 RQE completion Status x%x, needed x%x "
+			     "discarded x%x\n", status,
+			     hrq->RQ_no_posted_buf - hrq->RQ_discard_frm,
+			     hrq->RQ_discard_frm);
+
+		/* For SLI3, post more buffers if possible. No action for SLI4.
+		 * SLI4 is reposting immediately after processing the RQE.
+		 */
 		set_bit(HBA_POST_RECEIVE_BUFFER, &phba->hba_flag);
 		workposted = true;
 		break;
@@ -15581,7 +15561,7 @@ lpfc_sli4_dly_hba_process_cq(struct work_struct *work)
  * device-level interrupt handler. When the PCI slot is in error recovery
  * or the HBA is undergoing initialization, the interrupt handler will not
  * process the interrupt. The SCSI FCP fast-path ring event are handled in
- * the intrrupt context. This function is called without any lock held.
+ * the interrupt context. This function is called without any lock held.
  * It gets the hbalock to access and update SLI data structures. Note that,
  * the FCP EQ to FCP CQ are one-to-one map such that the FCP EQ index is
  * equal to that of FCP CQ index.
@@ -15895,7 +15875,7 @@ lpfc_sli4_queue_alloc(struct lpfc_hba *phba, uint32_t page_size,
 	if (pgcnt > phba->sli4_hba.pc_sli4_params.wqpcnt)
 		pgcnt = phba->sli4_hba.pc_sli4_params.wqpcnt;
 
-	queue = kzalloc_node(sizeof(*queue) + (sizeof(void *) * pgcnt),
+	queue = kzalloc_node(struct_size(queue, q_pgs, pgcnt),
 			     GFP_KERNEL, cpu_to_node(cpu));
 	if (!queue)
 		return NULL;
@@ -15912,7 +15892,6 @@ lpfc_sli4_queue_alloc(struct lpfc_hba *phba, uint32_t page_size,
 	 * resources, the free routine needs to know what was allocated.
 	 */
 	queue->page_count = pgcnt;
-	queue->q_pgs = (void **)&queue[1];
 	queue->entry_cnt_per_pg = hw_page_size / entry_size;
 	queue->entry_size = entry_size;
 	queue->entry_count = entry_count;
@@ -16024,7 +16003,7 @@ lpfc_dpp_wc_map(struct lpfc_hba *phba, uint8_t dpp_barset)
  * On success this function will return a zero. If unable to allocate
  * enough memory this function will return -ENOMEM. If a mailbox command
  * fails this function will return -ENXIO. Note: on ENXIO, some EQs may
- * have had their delay multipler changed.
+ * have had their delay multiplier changed.
  **/
 void
 lpfc_modify_hba_eq_delay(struct lpfc_hba *phba, uint32_t startq,
@@ -20473,7 +20452,7 @@ lpfc_sli4_fcf_rr_next_index_get(struct lpfc_hba *phba)
 		/*
 		 * If next fcf index is not found check if there are lower
 		 * Priority level fcf's in the fcf_priority list.
-		 * Set up the rr_bmask with all of the avaiable fcf bits
+		 * Set up the rr_bmask with all of the available fcf bits
 		 * at that level and continue the selection process.
 		 */
 	} while (lpfc_check_next_fcf_pri_level(phba));
@@ -21717,7 +21696,7 @@ void lpfc_adjust_high_watermark(struct lpfc_hba *phba, u32 hwqid)
  * @phba: pointer to lpfc hba data structure.
  * @hwqid: belong to which HWQ.
  *
- * This routine is called from hearbeat timer when pvt_pool is idle.
+ * This routine is called from heartbeat timer when pvt_pool is idle.
  * All free XRIs are moved from private to public pool on hwqid with 2 steps.
  * The first step moves (all - low_watermark) amount of XRIs.
  * The second step moves the rest of XRIs.

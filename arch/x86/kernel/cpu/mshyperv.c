@@ -19,6 +19,7 @@
 #include <linux/random.h>
 #include <asm/processor.h>
 #include <asm/hypervisor.h>
+#include <asm/cpuid/api.h>
 #include <hyperv/hvhdk.h>
 #include <asm/mshyperv.h>
 #include <asm/desc.h>
@@ -154,7 +155,7 @@ DEFINE_IDTENTRY_SYSVEC(sysvec_hyperv_callback)
 {
 	struct pt_regs *old_regs = set_irq_regs(regs);
 
-	inc_irq_stat(irq_hv_callback_count);
+	inc_irq_stat(HYPERVISOR_CALLBACK);
 	if (mshv_handler)
 		mshv_handler();
 
@@ -193,7 +194,7 @@ DEFINE_IDTENTRY_SYSVEC(sysvec_hyperv_stimer0)
 {
 	struct pt_regs *old_regs = set_irq_regs(regs);
 
-	inc_irq_stat(hyperv_stimer0_count);
+	inc_irq_stat(HYPERV_STIMER0);
 	if (hv_stimer0_handler)
 		hv_stimer0_handler();
 	add_interrupt_randomness(HYPERV_STIMER0_VECTOR);
@@ -237,8 +238,12 @@ void hv_remove_crash_handler(void)
 #ifdef CONFIG_KEXEC_CORE
 static void hv_machine_shutdown(void)
 {
-	if (kexec_in_progress && hv_kexec_handler)
-		hv_kexec_handler();
+	if (kexec_in_progress) {
+		hv_stimer_global_cleanup();
+
+		if (hv_kexec_handler)
+			hv_kexec_handler();
+	}
 
 	/*
 	 * Call hv_cpu_die() on all the CPUs, otherwise later the hypervisor
@@ -427,12 +432,19 @@ static void __init hv_smp_prepare_cpus(unsigned int max_cpus)
 	}
 
 #ifdef CONFIG_X86_64
+	/* If AP LPs exist, we are in a kexec'd kernel and VPs already exist */
+	if (num_present_cpus() == 1 || hv_lp_exists(1))
+		return;
+
 	for_each_present_cpu(i) {
 		if (i == 0)
 			continue;
 		ret = hv_call_add_logical_proc(numa_cpu_node(i), i, cpu_physical_id(i));
 		BUG_ON(ret);
 	}
+
+	ret = hv_call_notify_all_processors_started();
+	WARN_ON(ret);
 
 	for_each_present_cpu(i) {
 		if (i == 0)

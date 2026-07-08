@@ -398,6 +398,7 @@ prototypes::
 	bool (*lm_breaker_owns_lease)(struct file_lock *);
         bool (*lm_lock_expirable)(struct file_lock *);
         void (*lm_expire_lock)(void);
+        bool (*lm_breaker_timedout)(struct file_lease *);
 
 locking rules:
 
@@ -412,21 +413,8 @@ lm_breaker_owns_lease:	yes     	no			no
 lm_lock_expirable	yes		no			no
 lm_expire_lock		no		no			yes
 lm_open_conflict	yes		no			no
+lm_breaker_timedout     yes             no                      no
 ======================	=============	=================	=========
-
-buffer_head
-===========
-
-prototypes::
-
-	void (*b_end_io)(struct buffer_head *bh, int uptodate);
-
-locking rules:
-
-called from interrupts. In other words, extreme care is needed here.
-bh is locked, but that's all warranties we have here. Currently only RAID1,
-highmem, fs/buffer.c, and fs/ntfs/aops.c are providing these. Block devices
-call this method upon the IO completion.
 
 block_device_operations
 =======================
@@ -582,7 +570,7 @@ write_info:	yes		dqonoff_sem
 FS recursion means calling ->quota_read() and ->quota_write() from superblock
 operations.
 
-More details about quota locking can be found in fs/dquot.c.
+More details about quota locking can be found in fs/quota/dquot.c.
 
 vm_operations_struct
 ====================

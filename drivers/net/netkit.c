@@ -186,9 +186,12 @@ static int netkit_get_iflink(const struct net_device *dev)
 	return iflink;
 }
 
-static void netkit_set_multicast(struct net_device *dev)
+static int netkit_set_multicast(struct net_device *dev,
+				struct netdev_hw_addr_list *uc,
+				struct netdev_hw_addr_list *mc)
 {
 	/* Nothing to do, we receive whatever gets pushed to us! */
+	return 0;
 }
 
 static int netkit_set_macaddr(struct net_device *dev, void *sa)
@@ -330,7 +333,7 @@ static const struct net_device_ops netkit_netdev_ops = {
 	.ndo_open		= netkit_open,
 	.ndo_stop		= netkit_close,
 	.ndo_start_xmit		= netkit_xmit,
-	.ndo_set_rx_mode	= netkit_set_multicast,
+	.ndo_set_rx_mode_async	= netkit_set_multicast,
 	.ndo_set_rx_headroom	= netkit_set_headroom,
 	.ndo_set_mac_address	= netkit_set_macaddr,
 	.ndo_get_iflink		= netkit_get_iflink,
@@ -464,6 +467,7 @@ static void netkit_setup(struct net_device *dev)
 	dev->priv_flags |= IFF_NO_QUEUE;
 	dev->priv_flags |= IFF_DISABLE_NETPOLL;
 	dev->lltx = true;
+	dev->netmem_tx = NETMEM_TX_NO_DMA;
 
 	dev->netdev_ops     = &netkit_netdev_ops;
 	dev->ethtool_ops    = &netkit_ethtool_ops;

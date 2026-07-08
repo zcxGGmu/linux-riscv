@@ -94,7 +94,7 @@ void bio_integrity_prep(struct bio *bio, unsigned int action)
 	bio_integrity_init(bio, &bid->bip, &bid->bvec, 1);
 	bid->bio = bio;
 	bid->bip.bip_flags |= BIP_BLOCK_INTEGRITY;
-	bio_integrity_alloc_buf(bio, action & BI_ACT_ZERO);
+	bio_integrity_alloc_buf(bio, GFP_NOIO, action & BI_ACT_ZERO);
 	if (action & BI_ACT_CHECK)
 		bio_integrity_setup_default(bio);
 
@@ -125,7 +125,7 @@ static int __init blk_integrity_auto_init(void)
 	 * Make it highpri CPU intensive wq with max concurrency of 1.
 	 */
 	kintegrityd_wq = alloc_workqueue("kintegrityd", WQ_MEM_RECLAIM |
-					 WQ_HIGHPRI | WQ_CPU_INTENSIVE, 1);
+					 WQ_HIGHPRI | WQ_CPU_INTENSIVE | WQ_PERCPU, 1);
 	if (!kintegrityd_wq)
 		panic("Failed to create kintegrityd\n");
 	return 0;

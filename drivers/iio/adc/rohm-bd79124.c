@@ -19,7 +19,6 @@
 #include <linux/interrupt.h>
 #include <linux/irqreturn.h>
 #include <linux/module.h>
-#include <linux/mod_devicetable.h>
 #include <linux/regmap.h>
 #include <linux/types.h>
 
@@ -75,7 +74,7 @@
 
 /*
  * The high limit, low limit and last measurement result are each stored in
- * 2 consequtive registers. 4 bits are in the high bits of the first register
+ * 2 consecutive registers. 4 bits are in the high bits of the first register
  * and 8 bits in the next register.
  *
  * These macros return the address of the first reg for the given channel.
@@ -962,7 +961,7 @@ static int bd79124_hw_init(struct bd79124_data *data)
 	if (ret)
 		return ret;
 
-	/* Enable writing the measured values to the regsters */
+	/* Enable writing the measured values to the registers */
 	ret = regmap_set_bits(data->map, BD79124_REG_GEN_CFG,
 			      BD79124_MSK_STATS_EN);
 	if (ret)
@@ -1104,7 +1103,7 @@ static const struct of_device_id bd79124_of_match[] = {
 MODULE_DEVICE_TABLE(of, bd79124_of_match);
 
 static const struct i2c_device_id bd79124_id[] = {
-	{ "bd79124" },
+	{ .name = "bd79124" },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, bd79124_id);

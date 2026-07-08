@@ -29,6 +29,7 @@
 #include <linux/lz4.h>
 #include <linux/ctype.h>
 #include <linux/fs_parser.h>
+#include <linux/fserror.h>
 
 #include "f2fs.h"
 #include "node.h"
@@ -336,9 +337,12 @@ static const struct fs_parameter_spec f2fs_param_specs[] = {
 	fsparam_flag("usrquota", Opt_usrquota),
 	fsparam_flag("grpquota", Opt_grpquota),
 	fsparam_flag("prjquota", Opt_prjquota),
-	fsparam_string_empty("usrjquota", Opt_usrjquota),
-	fsparam_string_empty("grpjquota", Opt_grpjquota),
-	fsparam_string_empty("prjjquota", Opt_prjjquota),
+	fsparam_string("usrjquota", Opt_usrjquota),
+	fsparam_flag("usrjquota", Opt_usrjquota),
+	fsparam_string("grpjquota", Opt_grpjquota),
+	fsparam_flag("grpjquota", Opt_grpjquota),
+	fsparam_string("prjjquota", Opt_prjjquota),
+	fsparam_flag("prjjquota", Opt_prjjquota),
 	fsparam_flag("nat_bits", Opt_nat_bits),
 	fsparam_enum("jqfmt", Opt_jqfmt, f2fs_param_jqfmt),
 	fsparam_enum("alloc_mode", Opt_alloc, f2fs_param_alloc_mode),
@@ -979,26 +983,26 @@ static int f2fs_parse_param(struct fs_context *fc, struct fs_parameter *param)
 		ctx_set_opt(ctx, F2FS_MOUNT_PRJQUOTA);
 		break;
 	case Opt_usrjquota:
-		if (!*param->string)
-			ret = f2fs_unnote_qf_name(fc, USRQUOTA);
-		else
+		if (param->type == fs_value_is_string && *param->string)
 			ret = f2fs_note_qf_name(fc, USRQUOTA, param);
+		else
+			ret = f2fs_unnote_qf_name(fc, USRQUOTA);
 		if (ret)
 			return ret;
 		break;
 	case Opt_grpjquota:
-		if (!*param->string)
-			ret = f2fs_unnote_qf_name(fc, GRPQUOTA);
-		else
+		if (param->type == fs_value_is_string && *param->string)
 			ret = f2fs_note_qf_name(fc, GRPQUOTA, param);
+		else
+			ret = f2fs_unnote_qf_name(fc, GRPQUOTA);
 		if (ret)
 			return ret;
 		break;
 	case Opt_prjjquota:
-		if (!*param->string)
-			ret = f2fs_unnote_qf_name(fc, PRJQUOTA);
-		else
+		if (param->type == fs_value_is_string && *param->string)
 			ret = f2fs_note_qf_name(fc, PRJQUOTA, param);
+		else
+			ret = f2fs_unnote_qf_name(fc, PRJQUOTA);
 		if (ret)
 			return ret;
 		break;
@@ -1515,6 +1519,7 @@ static int f2fs_check_opt_consistency(struct fs_context *fc,
 			F2FS_OPTION(sbi).root_reserved_blocks);
 		ctx_clear_opt(ctx, F2FS_MOUNT_RESERVE_ROOT);
 		ctx->opt_mask &= ~BIT(F2FS_MOUNT_RESERVE_ROOT);
+		ctx->spec_mask &= ~F2FS_SPEC_reserve_root;
 	}
 	if (test_opt(sbi, RESERVE_NODE) &&
 			(ctx->opt_mask & BIT(F2FS_MOUNT_RESERVE_NODE)) &&
@@ -1523,6 +1528,7 @@ static int f2fs_check_opt_consistency(struct fs_context *fc,
 			F2FS_OPTION(sbi).root_reserved_nodes);
 		ctx_clear_opt(ctx, F2FS_MOUNT_RESERVE_NODE);
 		ctx->opt_mask &= ~BIT(F2FS_MOUNT_RESERVE_NODE);
+		ctx->spec_mask &= ~F2FS_SPEC_reserve_node;
 	}
 
 	err = f2fs_check_test_dummy_encryption(fc, sb);
@@ -2009,7 +2015,7 @@ static void f2fs_put_super(struct super_block *sb)
 	}
 
 	/* be sure to wait for any on-going discard commands */
-	done = f2fs_issue_discard_timeout(sbi);
+	done = f2fs_issue_discard_timeout(sbi, true);
 	if (f2fs_realtime_discard_enable(sbi) && !sbi->discard_blks && done) {
 		struct cp_control cpc = {
 			.reason = CP_UMOUNT | CP_TRIMMED,
@@ -2069,7 +2075,7 @@ static void f2fs_put_super(struct super_block *sb)
 	/* flush s_error_work before sbi destroy */
 	flush_work(&sbi->s_error_work);
 
-	f2fs_destroy_post_read_wq(sbi);
+	f2fs_destroy_wq(sbi);
 
 	kvfree(sbi->ckpt);
 
@@ -2088,6 +2094,12 @@ static void f2fs_put_super(struct super_block *sb)
 #if IS_ENABLED(CONFIG_UNICODE)
 	utf8_unload(sb->s_encoding);
 #endif
+	sync_blockdev(sb->s_bdev);
+	invalidate_bdev(sb->s_bdev);
+	for (i = 1; i < sbi->s_ndevs; i++) {
+		sync_blockdev(FDEV(i).bdev);
+		invalidate_bdev(FDEV(i).bdev);
+	}
 }
 
 int f2fs_sync_fs(struct super_block *sb, int sync)
@@ -2152,7 +2164,7 @@ static int f2fs_unfreeze(struct super_block *sb)
 	 * will recover after removal of snapshot.
 	 */
 	if (test_opt(sbi, DISCARD) && !f2fs_hw_support_discard(sbi))
-		f2fs_issue_discard_timeout(sbi);
+		f2fs_issue_discard_timeout(sbi, true);
 
 	clear_sbi_flag(F2FS_SB(sb), SBI_IS_FREEZING);
 	return 0;
@@ -2621,12 +2633,17 @@ static int f2fs_disable_checkpoint(struct f2fs_sb_info *sbi)
 
 	/* check if we need more GC first */
 	unusable = f2fs_get_unusable_blocks(sbi);
+
+	f2fs_info(sbi, "%s starts, unusable: %u", __func__, unusable);
+
 	if (!f2fs_disable_cp_again(sbi, unusable))
 		goto skip_gc;
 
 	f2fs_update_time(sbi, DISABLE_TIME);
 
 	sbi->gc_mode = GC_URGENT_HIGH;
+
+	f2fs_info(sbi, "%s: run f2fs_gc() to migrate blocks", __func__);
 
 	while (!f2fs_time_over(sbi, DISABLE_TIME)) {
 		struct f2fs_gc_control gc_control = {
@@ -2648,6 +2665,12 @@ static int f2fs_disable_checkpoint(struct f2fs_sb_info *sbi)
 			break;
 	}
 
+	f2fs_info(sbi, "%s: call sync_filesystem() to persist meta: %lld, node: %lld, data: %lld",
+			__func__,
+			get_pages(sbi, F2FS_DIRTY_META),
+			get_pages(sbi, F2FS_DIRTY_NODES),
+			get_pages(sbi, F2FS_DIRTY_DATA));
+
 	ret = sync_filesystem(sbi->sb);
 	if (ret || err) {
 		err = ret ? ret : err;
@@ -2661,6 +2684,12 @@ static int f2fs_disable_checkpoint(struct f2fs_sb_info *sbi)
 	}
 
 skip_gc:
+	f2fs_info(sbi, "%s: call f2fs_write_checkpoint(), meta: %lld, node: %lld, data: %lld",
+			__func__,
+			get_pages(sbi, F2FS_DIRTY_META),
+			get_pages(sbi, F2FS_DIRTY_NODES),
+			get_pages(sbi, F2FS_DIRTY_DATA));
+
 	f2fs_down_write_trace(&sbi->gc_lock, &lc);
 	cpc.reason = CP_PAUSE;
 	set_sbi_flag(sbi, SBI_CP_DISABLED);
@@ -2678,7 +2707,7 @@ out_unlock:
 restore_flag:
 	sbi->gc_mode = gc_mode;
 	sbi->sb->s_flags = s_flags;	/* Restore SB_RDONLY status */
-	f2fs_info(sbi, "f2fs_disable_checkpoint() finish, err:%d", err);
+	f2fs_info(sbi, "%s finishes, err:%d", __func__, err);
 	return err;
 }
 
@@ -2957,7 +2986,12 @@ static int __f2fs_remount(struct fs_context *fc, struct super_block *sb)
 			need_stop_discard = true;
 		} else {
 			f2fs_stop_discard_thread(sbi);
-			f2fs_issue_discard_timeout(sbi);
+			/*
+			 * f2fs_ioc_fitrim() won't race w/ "remount ro"
+			 * so it's safe to check discard_cmd_cnt in
+			 * f2fs_issue_discard_timeout().
+			 */
+			f2fs_issue_discard_timeout(sbi, flags & SB_RDONLY);
 			need_restart_discard = true;
 		}
 	}
@@ -4592,6 +4626,7 @@ static void save_stop_reason(struct f2fs_sb_info *sbi, unsigned char reason)
 	spin_lock_irqsave(&sbi->error_lock, flags);
 	if (sbi->stop_reason[reason] < GENMASK(BITS_PER_BYTE - 1, 0))
 		sbi->stop_reason[reason]++;
+	sbi->stop_reason_dirty = true;
 	spin_unlock_irqrestore(&sbi->error_lock, flags);
 }
 
@@ -4599,17 +4634,21 @@ static void f2fs_record_stop_reason(struct f2fs_sb_info *sbi)
 {
 	struct f2fs_super_block *raw_super = F2FS_RAW_SUPER(sbi);
 	unsigned long flags;
+	bool report_shutdown = false;
 	int err;
 
 	f2fs_down_write(&sbi->sb_lock);
 
 	spin_lock_irqsave(&sbi->error_lock, flags);
 	if (sbi->error_dirty) {
-		memcpy(F2FS_RAW_SUPER(sbi)->s_errors, sbi->errors,
-							MAX_F2FS_ERRORS);
+		memcpy(raw_super->s_errors, sbi->errors, MAX_F2FS_ERRORS);
 		sbi->error_dirty = false;
 	}
 	memcpy(raw_super->s_stop_reason, sbi->stop_reason, MAX_STOP_REASON);
+	if (sbi->stop_reason_dirty) {
+		report_shutdown = true;
+		sbi->stop_reason_dirty = false;
+	}
 	spin_unlock_irqrestore(&sbi->error_lock, flags);
 
 	err = f2fs_commit_super(sbi, false);
@@ -4619,6 +4658,9 @@ static void f2fs_record_stop_reason(struct f2fs_sb_info *sbi)
 		f2fs_err_ratelimited(sbi,
 			"f2fs_commit_super fails to record stop_reason, err:%d",
 			err);
+
+	if (report_shutdown)
+		fserror_report_shutdown(sbi->sb, GFP_NOFS);
 }
 
 void f2fs_save_errors(struct f2fs_sb_info *sbi, unsigned char flag)
@@ -4633,6 +4675,27 @@ void f2fs_save_errors(struct f2fs_sb_info *sbi, unsigned char flag)
 	spin_unlock_irqrestore(&sbi->error_lock, flags);
 }
 
+static void f2fs_report_fserror(struct f2fs_sb_info *sbi, unsigned char error)
+{
+	switch (error) {
+	case ERROR_INVALID_BLKADDR:
+	case ERROR_CORRUPTED_INODE:
+	case ERROR_INCONSISTENT_SUMMARY:
+	case ERROR_INCONSISTENT_SUM_TYPE:
+	case ERROR_CORRUPTED_JOURNAL:
+	case ERROR_INCONSISTENT_NODE_COUNT:
+	case ERROR_INCONSISTENT_BLOCK_COUNT:
+	case ERROR_INVALID_CURSEG:
+	case ERROR_INCONSISTENT_SIT:
+	case ERROR_INVALID_NODE_REFERENCE:
+	case ERROR_INCONSISTENT_NAT:
+		fserror_report_metadata(sbi->sb, -EFSCORRUPTED, GFP_NOFS);
+		break;
+	default:
+		return;
+	}
+}
+
 void f2fs_handle_error(struct f2fs_sb_info *sbi, unsigned char error)
 {
 	f2fs_save_errors(sbi, error);
@@ -4642,6 +4705,8 @@ void f2fs_handle_error(struct f2fs_sb_info *sbi, unsigned char error)
 	if (!test_bit(error, (unsigned long *)sbi->errors))
 		return;
 	schedule_work(&sbi->s_error_work);
+
+	f2fs_report_fserror(sbi, error);
 }
 
 static bool system_going_down(void)
@@ -4650,7 +4715,8 @@ static bool system_going_down(void)
 		|| system_state == SYSTEM_RESTART;
 }
 
-void f2fs_handle_critical_error(struct f2fs_sb_info *sbi, unsigned char reason)
+static void f2fs_handle_critical_error(struct f2fs_sb_info *sbi,
+						unsigned char reason)
 {
 	struct super_block *sb = sbi->sb;
 	bool shutdown = reason == STOP_CP_REASON_SHUTDOWN;
@@ -4706,6 +4772,25 @@ void f2fs_handle_critical_error(struct f2fs_sb_info *sbi, unsigned char reason)
 	 * freeze_super() which will lead to deadlocks and other problems.
 	 */
 }
+
+void f2fs_fault_report(struct super_block *sb, unsigned int err_code,
+			const char *func, unsigned int data)
+{
+	trace_f2fs_fault_report(sb, err_code, func, data);
+}
+
+void f2fs_stop_checkpoint(struct f2fs_sb_info *sbi, bool end_io,
+						unsigned char reason)
+{
+	if (reason != STOP_CP_REASON_SHUTDOWN)
+		f2fs_fault_report(sbi->sb, REPORT_FAULT_STOP_CP, __func__, reason);
+
+	f2fs_build_fault_attr(sbi, 0, 0, FAULT_ALL);
+	if (!end_io)
+		f2fs_flush_merged_writes(sbi);
+	f2fs_handle_critical_error(sbi, reason);
+}
+
 
 static void f2fs_record_error_work(struct work_struct *work)
 {
@@ -4948,6 +5033,11 @@ try_onemore:
 	init_f2fs_rwsem_trace(&sbi->gc_lock, sbi, LOCK_NAME_GC_LOCK);
 	mutex_init(&sbi->writepages);
 	init_f2fs_rwsem_trace(&sbi->cp_global_sem, sbi, LOCK_NAME_CP_GLOBAL);
+#ifdef CONFIG_DEBUG_LOCK_ALLOC
+	lockdep_register_key(&sbi->cp_global_sem_key);
+	lockdep_set_class(&sbi->cp_global_sem.internal_rwsem,
+					&sbi->cp_global_sem_key);
+#endif
 	init_f2fs_rwsem_trace(&sbi->node_write, sbi, LOCK_NAME_NODE_WRITE);
 	init_f2fs_rwsem_trace(&sbi->node_change, sbi, LOCK_NAME_NODE_CHANGE);
 	spin_lock_init(&sbi->stat_lock);
@@ -5098,9 +5188,9 @@ try_onemore:
 		goto free_devices;
 	}
 
-	err = f2fs_init_post_read_wq(sbi);
+	err = f2fs_init_wq(sbi);
 	if (err) {
-		f2fs_err(sbi, "Failed to initialize post read workqueue");
+		f2fs_err(sbi, "Failed to create workqueue");
 		goto free_devices;
 	}
 
@@ -5387,7 +5477,7 @@ stop_ckpt_thread:
 	f2fs_stop_ckpt_thread(sbi);
 	/* flush s_error_work before sbi destroy */
 	flush_work(&sbi->s_error_work);
-	f2fs_destroy_post_read_wq(sbi);
+	f2fs_destroy_wq(sbi);
 free_devices:
 	destroy_device_list(sbi);
 	kvfree(sbi->ckpt);
@@ -5419,6 +5509,9 @@ free_options:
 free_sb_buf:
 	kfree(raw_super);
 free_sbi:
+#ifdef CONFIG_DEBUG_LOCK_ALLOC
+	lockdep_unregister_key(&sbi->cp_global_sem_key);
+#endif
 	kfree(sbi);
 	sb->s_fs_info = NULL;
 
@@ -5500,6 +5593,9 @@ static void kill_f2fs_super(struct super_block *sb)
 	/* Release block devices last, after fscrypt_destroy_keyring(). */
 	if (sbi) {
 		destroy_device_list(sbi);
+#ifdef CONFIG_DEBUG_LOCK_ALLOC
+		lockdep_unregister_key(&sbi->cp_global_sem_key);
+#endif
 		kfree(sbi);
 		sb->s_fs_info = NULL;
 	}
